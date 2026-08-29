@@ -1,96 +1,127 @@
 # Local AI Agent
 
-A desktop-oriented local AI assistant with a cinematic HUD, browser automation, desktop app interaction, and a lightweight backend for task orchestration.
+Локальный ИИ-ассистент для управления рабочим окружением: открывает приложения, работает с браузером, помогает выполнять задачи через агентный цикл и интерфейс в стиле sci-fi HUD.
 
-## Overview
+## О проекте
 
-This project combines:
+Это персональный проект локального ИИ-агента, который сочетает в себе:
 
-- React + Vite frontend with a futuristic interface
-- Node/Express backend for agent orchestration and websocket events
-- desktop automation tools for app launching, browser actions, and system interactions
-- safety checks for risky actions and request validation
-- tool-based planning for autonomous task execution
+- современный интерфейс на React и Vite;
+- серверную часть на Node.js и Express;
+- планирование действий и выполнение задач через агентный цикл;
+- инструменты для работы с браузером, окнами приложений и системными операциями;
+- проверки безопасности перед выполнением рискованных действий;
+- поддержку локальных и внешних AI-моделей.
 
-It is intended as a local personal assistant prototype and experimentation platform.
+Идея проекта — дать локальному помощнику выполнять простые и средние задачи на компьютере так же, как ассистент в фильмах: быстро, визуально, с понятным интерфейсом и безопасными ограничениями.
 
-## Features
+## Что умеет проект
 
-- voice-ready UI shell and animated 3D HUD
-- AI task planning and execution loop
-- browser and desktop action tools
-- safety gates and request validation
-- TTS integration support
-- model routing with local/remote AI providers
+- открывать и активировать приложения;
+- работать с браузером и веб-поиском;
+- выполнять поиск и навигацию по страницам;
+- запускать мультимедийные сценарии;
+- планировать последовательность действий через agent loop;
+- показывать статус задач и прогресс в интерфейсе;
+- использовать модельный роутер и инструментальную архитектуру для расширения функционала;
+- обеспечивать базовую валидацию входных данных и безопасные проверки на опасные команды.
 
-## Project Structure
+## Архитектура
 
 ```text
 .
-├── src/                 # Frontend React application
-├── server/              # Backend, planning, tools, safety, router
+├── src/                 # интерфейс пользователя и UI-компоненты
+├── server/              # backend, агент, планировщик, инструменты, safety
 ├── index.html
 ├── package.json
 ├── vite.config.ts
 ├── tsconfig.json
 ├── .env.example
 ├── .gitignore
-└── README.md
+├── README.md
+└── ...
 ```
 
-## Getting Started
+## Стек
 
-1. Install dependencies:
+- React
+- Vite
+- TypeScript
+- Express
+- WebSocket
+- Tailwind CSS
+- Three.js / React Three Fiber
+- Playwright / browser automation
+- AI model routing and tool orchestration
+
+## Как запустить
+
+### 1. Установить зависимости
 
 ```bash
 npm install
 ```
 
-2. Copy the environment example file:
+### 2. Создать локальный файл окружения
 
 ```bash
 copy .env.example .env
 ```
 
-3. Fill in your local values if you use optional AI/TTS integrations.
+Если у вас Linux/macOS:
 
-4. Start the project:
+```bash
+cp .env.example .env
+```
+
+### 3. Запустить frontend
 
 ```bash
 npm run dev -- --host 0.0.0.0
 ```
 
-5. Start the backend server in another terminal:
+### 4. Запустить backend
+
+В отдельном терминале:
 
 ```bash
 npm run server:watch
 ```
 
-Or run both together:
+### 5. Запустить оба сразу
 
 ```bash
 npm run dev:all
 ```
 
-## Production build
+## Сборка проекта
 
 ```bash
 npm run build
 ```
 
-## Tests
+## Тесты
 
 ```bash
 npm test
 ```
 
-## Security notes
+## Безопасность
 
-- Never commit real API keys or secrets.
-- Use the local environment file only for development.
-- Keep tool execution restricted to approved actions and validated inputs.
-- The repository intentionally does not expose internal credentials or private system details.
+Проект предусматривает базовые меры защиты:
 
-## License
+- валидацию входных данных;
+- ограничения на опасные команды;
+- безопасный запуск инструментов;
+- фильтрацию загрузки внешних данных и проверку запросов;
+- отсутствие раскрытия внутренних ключей и приватных секретов в публичном репозитории.
 
-This project is for local experimentation and personal development use. See your project policy or repository rules for distribution requirements.
+Важно: реальные секреты, токены и ключи должны храниться локально в файле `.env`, а не в репозитории.
+
+## Цель проекта
+
+Этот проект создан как локальный, расширяемый AI-ассистент для экспериментов с автоматизацией рабочего стола, агентным поведением и интерфейсом будущего. Он подходит для прототипирования, доработок и персональных автоматизаций без зависимости от облачного сервиса.
+
+## Лицензия
+
+Проект предназначен для локальной разработки и личного использования. При распространении соблюдайте внутренние правила вашей среды и требования к репозиторию.
