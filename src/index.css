@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0a0a1a;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace, ui-monospace, sans-serif;
+    margin: 0;
+  }
+}
+
+@layer utilities {
+  .hud-text {
+    color: #00d4ff;
+    text-shadow: 0 0 5px rgba(0, 212, 255, 0.5), 0 0 10px rgba(0, 212, 255, 0.3);
+  }
+  
+  .hud-border {
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.1) inset, 0 0 10px rgba(0, 212, 255, 0.1);
+  }
+
+  .hud-panel {
+    background: rgba(0, 10, 20, 0.7);
+    backdrop-filter: blur(8px);
+  }
+
+  .glass-panel {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+@keyframes border-glow {
+  0% { border-color: rgba(0, 212, 255, 0.2); }
+  50% { border-color: rgba(0, 212, 255, 0.6); }
+  100% { border-color: rgba(0, 212, 255, 0.2); }
+}
+
+/* Custom Futuristic Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a1a;
+}
+::-webkit-scrollbar-thumb {
+  background: #00d4ff40;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00d4ff80;
+}
