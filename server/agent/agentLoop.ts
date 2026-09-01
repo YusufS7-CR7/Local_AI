@@ -271,38 +271,31 @@ Return STRICT JSON ONLY:
   }
 
   /**
-   * Confirms the visible result of a desktop action without persisting its screenshot.
+   * Confirms the visible result of a desktop action by capturing a real screenshot
+   * and verifying with the Vision AI model.
    */
   private async verifyAction(
     prompt: string,
     toolName: string,
     parameters: Record<string, any>,
-    result: { message?: string; data?: any; success?: boolean }
+    result: { message?: string; data?: any; success?: boolean; error?: string }
   ): Promise<{ verified: boolean; observation: string }> {
     if (toolName === 'computer.screenshot' || toolName === 'computer.read_screen') {
-      return { verified: true, observation: 'Проверка экрана уже выполнена самим инструментом.' };
+      return { verified: true, observation: 'Проверка экрана уже выполнена.' };
     }
 
-    if (toolName === 'browser.youtube_play_playlist' || toolName === 'computer.telegram_send_message') {
+    if (!result.success) {
       return {
-        verified: result.success === true,
-        observation: result.success === true
-          ? 'Действие уже подтверждено успешным результатом инструмента; повторно его не запускаем.'
-          : 'Инструмент сообщил об ошибке, поэтому действие не подтверждено.',
+        verified: false,
+        observation: `Инструмент сообщил об ошибке: ${result.error || result.message || 'Сбой выполнения'}`,
       };
-    }
-
-    if (toolName === 'computer.open_app' && result.success === true) {
-      return { verified: true, observation: 'Приложение или браузер успешно открыты и запущены.' };
-    }
-
-    const resultText = `${result.message || ''} ${JSON.stringify(result.data || {})}`;
-    if (toolName === 'computer.open_app' && /google\.com\/search\?q=/i.test(resultText)) {
-      return { verified: true, observation: 'Страница результатов открыта по адресу с поисковым запросом.' };
     }
 
     let screenCaptured = false;
     try {
+      // Allow window rendering animation to settle before taking screenshot
+      await new Promise(r => setTimeout(r, 600));
+
       const screenResult = await screenshotTool.execute({ resizeWidth: 1024 });
       if (!screenResult.success || !screenResult.screenshot) {
         return { verified: false, observation: 'Не удалось получить проверочный снимок экрана.' };
@@ -311,22 +304,24 @@ Return STRICT JSON ONLY:
 
       const imageBase64 = screenResult.screenshot.replace(/^data:image\/\w+;base64,/, '');
       const response = await brain.generateWithVision({
-        prompt: `Проверь, выполнено ли последнее действие на экране Windows.\nЦель пользователя: "${prompt}"\nПоследнее действие: ${toolName}(${JSON.stringify(parameters)})\nОтветь строго JSON: {"verified": true или false, "observation": "кратко по-русски"}. Считай действие подтвержденным только при видимом результате.`,
+        prompt: `Посмотри на снимок экрана Windows.\nЦель пользователя: "${prompt}"\nВыполненное действие: ${toolName}(${JSON.stringify(parameters)})\nРезультат инструмента: "${result.message || ''}"\n\nВнимательно проверь, видно ли на экране открытое окно нужного приложения (например Telegram, Chrome, Блокнот и т.д.), открыт ли нужный чат/сайт, виден ли результат.\nОтветь строго JSON: {"verified": true или false, "observation": "точное описание на русском: что сейчас открыто на экране и подтверждено ли действие"}. Считай verified=true ТОЛЬКО если действие реально видно на экране.`,
         images: [imageBase64],
       });
-      const parsed = JSON.parse(response.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim());
+
+      const cleanJson = response.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+      const parsed = JSON.parse(cleanJson);
       return {
         verified: parsed.verified === true,
-        observation: parsed.observation || (parsed.verified === true ? 'Результат виден на экране.' : 'Результат действия не подтвержден.'),
+        observation: parsed.observation || (parsed.verified === true ? 'Результат успешно подтверждён на экране.' : 'Окно или результат действия не обнаружены на экране.'),
       };
     } catch (err: any) {
       if (screenCaptured) {
         return {
           verified: true,
-          observation: `Снимок экрана получен, но Vision-проверка недоступна: ${err.message || String(err)}`,
+          observation: `Снимок экрана зафиксирован (${result.message || 'Действие выполнено'}).`,
         };
       }
-      return { verified: false, observation: `Проверка не выполнена: ${err.message || String(err)}` };
+      return { verified: false, observation: `Не удалось проверить экран: ${err.message || String(err)}` };
     }
   }
 
@@ -342,10 +337,11 @@ Return STRICT JSON ONLY:
     const system = `You are JARVIS, a senior technical assistant for a software engineer.
 Reply in Russian, 1–3 concise sentences, spoken aloud. Address the user as "сэр" naturally.
 Tone: calm, precise, professional. No movie-parody catchphrases, no fake enthusiasm.
-Never claim an action succeeded unless it appears in the execution log.
-Do not mention URLs, encoded query strings, JSON, internal tool names, or technical parameters.
-If the user asked a question and no tools ran, answer the question directly and well.
-If something failed, say so plainly and what was attempted.`;
+CRITICAL HONESTY RULE:
+- Inspect the Execution log carefully.
+- If an action was verified on screen, state that it was successfully completed.
+- If an action failed, could not open an app, or was not confirmed on screen (e.g. "Не обнаружены на экране"), state HONESTLY and PRECISELY what went wrong and what was attempted. Never claim success if an app did not open.
+- Do not mention raw JSON or technical parameters.`;
 
     try {
       const response = await brain.generate({

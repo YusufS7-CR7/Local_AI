@@ -187,7 +187,7 @@ function scanSystemShortcuts(): Map<string, string> {
 /**
  * Resolves any application query to an executable or shortcut path on user's PC.
  */
-function resolveAppPath(appName: string): { key: string; targetPath: string | null; isRunning?: boolean } {
+export function resolveAppPath(appName: string): { key: string; targetPath: string | null; isRunning?: boolean } {
   const normalized = appName.toLowerCase().trim();
   const canonicalKey = APP_ALIASES[normalized] || normalized;
 
@@ -229,11 +229,10 @@ function resolveAppPath(appName: string): { key: string; targetPath: string | nu
  */
 async function launchOrFocus(targetPath: string | null, fallbackKey: string, args: string = ''): Promise<{ success: boolean; message?: string; error?: string }> {
   try {
-    // 1. Launch / Restore application via Windows ShellExecute (guarantees window creation / unminimizing)
+    // 1. Launch / Restore application via Windows ShellExecute
     if (targetPath && fs.existsSync(targetPath)) {
       await execAsync(`cmd.exe /c start "" "${targetPath}" ${args ? `"${args}"` : ''}`);
     } else {
-      // For Windows UWP/System apps
       if (fallbackKey === 'calc') {
         await execAsync(`cmd.exe /c start calculator:`);
       } else {
@@ -241,27 +240,52 @@ async function launchOrFocus(targetPath: string | null, fallbackKey: string, arg
       }
     }
 
-    // 2. Bring window to front
+    // 2. Poll and bring window to front using Win32 API
     const processSearchKey = fallbackKey.replace(/\.exe$/i, '');
-    setTimeout(async () => {
-      try {
-        const focusScript = `
-          $proc = Get-Process -ErrorAction SilentlyContinue | Where-Object { 
-              ($_.ProcessName -like "*${processSearchKey}*" -or $_.MainWindowTitle -like "*${processSearchKey}*") -and $_.MainWindowHandle -ne 0 
-          } | Select-Object -First 1
+    const focusScript = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class WinUtil {
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+    
+    public static void Activate(IntPtr hWnd) {
+        if (hWnd == IntPtr.Zero) return;
+        if (IsIconic(hWnd)) {
+            ShowWindowAsync(hWnd, 9); // SW_RESTORE
+        } else {
+            ShowWindowAsync(hWnd, 5); // SW_SHOW
+        }
+        keybd_event(0x12, 0, 0, 0);
+        SetForegroundWindow(hWnd);
+        keybd_event(0x12, 0, 2, 0);
+    }
+}
+"@ -ErrorAction SilentlyContinue
 
-          if ($proc) {
-              $wshell = New-Object -ComObject WScript.Shell
-              $wshell.AppActivate($proc.Id) | Out-Null
-          }
-        `;
-        await runPowerShell(focusScript);
-      } catch {}
-    }, 400);
+for ($i = 0; $i -lt 10; $i++) {
+    Start-Sleep -Milliseconds 250
+    $proc = Get-Process -ErrorAction SilentlyContinue | Where-Object { 
+        ($_.ProcessName -like "*${processSearchKey}*" -or $_.MainWindowTitle -like "*${processSearchKey}*") -and $_.MainWindowHandle -ne 0 
+    } | Select-Object -First 1
+    if ($proc) {
+        [WinUtil]::Activate($proc.MainWindowHandle)
+        break
+    }
+}
+`;
+    await runPowerShell(focusScript).catch(() => {});
 
     return {
       success: true,
-      message: `Приложение «${fallbackKey}» успешно запущено и открыто на экране.`,
+      message: `Приложение «${fallbackKey}» запущено и выведено на передний план.`,
     };
   } catch (err: any) {
     return {
