@@ -22,6 +22,7 @@ class AgentSocketService {
     history: [],
     pendingConfirmation: null,
     serverConnected: false,
+    toolsCount: 0,
   };
 
   constructor() {
@@ -81,10 +82,12 @@ class AgentSocketService {
 
           if (msg.type === 'CONNECTED') {
             const pending = msg.payload?.pendingConfirmations?.[0] || null;
+            const toolsCount = msg.payload?.toolsCount ?? 0;
             this.updateState(prev => ({
               ...prev,
               serverConnected: true,
               pendingConfirmation: pending,
+              toolsCount,
             }));
           }
 

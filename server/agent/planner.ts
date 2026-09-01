@@ -1,5 +1,10 @@
 import { toolRegistry } from '../tools/registry.js';
 import { brain } from '../router/brain.js';
+import {
+  cleanSearchQuery,
+  cleanYouTubeQuery,
+  cleanYouTubePlaylistQuery,
+} from '../utils/queryCleaner.js';
 
 export interface PlannedToolCall {
   name: string;
@@ -16,47 +21,60 @@ export interface PlanResult {
 
 export class TaskPlanner {
   /**
-   * Generates helpful, accurate AI information text for topics requested by user.
+   * Sanitizes all planned tool parameters to ensure no conversational fluff,
+   * filler words, or whole spoken sentences leak into URLs, search boxes, or app arguments.
    */
-  private generateTopicSnippet(prompt: string): string {
-    const p = prompt.toLowerCase();
-    if (p.includes('openai') || p.includes('опенеай') || p.includes('опен аи')) {
-      return 'OpenAI — ведущая американская научно-исследовательская лаборатория в сфере искусственного интеллекта. Разработчик всемирно известных моделей ChatGPT, GPT-4o, DALL-E, Whisper и видеогенератора Sora.';
-    }
-    if (p.includes('ии') || p.includes('искусственн') || p.includes('нейросет')) {
-      return 'Искусственный интеллект (ИИ) — технология создания интеллектуальных систем, способных решать творческие, аналитические и практические задачи, распознавать образы и генерировать текст и код.';
-    }
-    if (p.includes('react') || p.includes('реакт')) {
-      return 'React — самая популярная JavaScript-библиотека с открытым исходным кодом для разработки интерактивных пользовательских интерфейсов и веб-приложений.';
-    }
-    if (p.includes('python') || p.includes('питон')) {
-      return 'Python — высокоуровневый язык программирования с чистым синтаксисом, являющийся стандартом в сфере Data Science, машинного обучения и веб-разработки.';
-    }
-    return prompt;
-  }
+  private sanitizeToolCalls(toolCalls: PlannedToolCall[]): PlannedToolCall[] {
+    return toolCalls.map((tc) => {
+      const params = { ...(tc.parameters || {}) };
 
-  private extractSearchQuery(prompt: string): string {
-    const normalized = prompt.replace(/[!?.,;:]+$/g, '').trim();
-    const topicMatch = normalized.match(/(?:\bпро\b|\bоб\b|\bо\b|\bнасч[её]т\b|\bна тему\b|\bпо теме\b)\s+(.+)$/i);
-    if (topicMatch?.[1]) {
-      return topicMatch[1].trim();
-    }
+      if (tc.name === 'browser.youtube_play_playlist' && params.query) {
+        params.query = cleanYouTubePlaylistQuery(params.query);
+      }
 
-    return normalized
-      .replace(/^(?:открой|запусти|открыть)\s+(?:новое\s+)?(?:окно\s+)?(?:в\s+)?(?:хроме|chrome|браузере)\s*/i, '')
-      .replace(/^(?:и\s+)?(?:найди|поищи|ищи|поиск)\s+/i, '')
-      .replace(/^(?:информацию|инфу|инфа|сведения)\s+/i, '')
-      .trim();
+      if (tc.name === 'browser.open' && params.url) {
+        if (params.url.includes('youtube.com/results?search_query=')) {
+          const raw = decodeURIComponent(params.url.split('search_query=')[1] || '');
+          const clean = cleanYouTubeQuery(raw);
+          params.url = `https://www.youtube.com/results?search_query=${encodeURIComponent(clean)}`;
+        } else if (params.url.includes('google.com/search?q=')) {
+          const raw = decodeURIComponent(params.url.split('?q=')[1] || '');
+          const clean = cleanSearchQuery(raw);
+          params.url = `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
+        }
+      }
+
+      if (tc.name === 'computer.open_app') {
+        const app = (params.appName || '').toLowerCase();
+        if (['chrome', 'browser', 'edge', 'yandex', 'гугл', 'хром', 'браузер'].includes(app) && params.args) {
+          if (params.args.startsWith('http://') || params.args.startsWith('https://')) {
+            if (params.args.includes('youtube.com/results?search_query=')) {
+              const raw = decodeURIComponent(params.args.split('search_query=')[1] || '');
+              const clean = cleanYouTubeQuery(raw);
+              params.args = `https://www.youtube.com/results?search_query=${encodeURIComponent(clean)}`;
+            } else if (params.args.includes('google.com/search?q=')) {
+              const raw = decodeURIComponent(params.args.split('?q=')[1] || '');
+              const clean = cleanSearchQuery(raw);
+              params.args = `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
+            }
+          } else {
+            const clean = cleanSearchQuery(params.args);
+            params.args = `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
+          }
+        }
+      }
+
+      return {
+        name: tc.name,
+        parameters: params,
+      };
+    });
   }
 
   private extractTelegramMessage(prompt: string): string {
-    const topic = this.extractSearchQuery(prompt);
-    if (/\b(ии|искусственн|нейросет|openai|react|python)\b/i.test(topic)) {
-      return this.generateTopicSnippet(prompt);
-    }
-
     const messageMatch = prompt.match(/(?:отправь|напиши|передай|сообщение|текст)\s+(?:мне\s+)?(?:в\s+избранное\s+)?(.+)$/i);
-    return messageMatch?.[1]?.replace(/^(?:сообщение|текст)\s+/i, '').trim() || prompt;
+    const raw = messageMatch?.[1]?.replace(/^(?:сообщение|текст)\s+/i, '').trim() || prompt;
+    return cleanSearchQuery(raw);
   }
 
   private extractTelegramChatAndMessage(prompt: string): { chat: string; message: string } | null {
@@ -71,47 +89,142 @@ export class TaskPlanner {
       : null;
   }
 
-  private extractYouTubePlaylistQuery(prompt: string): string {
-    const query = prompt
-      .replace(/[!?.,;:]+$/g, '')
-      .replace(/^\s*(?:джарвис|jarvis)[,\s:]*/i, '')
-      .replace(/(?:открой|запусти|перейди|зайди)\s+(?:в\s+)?(?:хроме|chrome|браузере)?\s*/i, '')
-      .replace(/(?:ютуб|youtube|видео на ютубе)\s*/i, '')
-      .replace(/(?:и\s+)?(?:найди|поищи|ищи)\s+(?:там\s+)?/i, '')
-      .replace(/\s+(?:и\s+)?(?:поставь|включи|запусти)(?:\s+его|\s+ее|\s+плейлист)?\s*$/i, '')
-      .replace(/^\s*(?:плейлист|плейлиста|playlist)\s+(?:из|про|на тему)\s+/i, '')
-      .replace(/\b(?:плейлист|плейлиста|playlist)\b/gi, '')
-      .replace(/\s+и\s*$/i, '')
-      .trim();
-
-    return query || 'грустные песни';
-  }
-
-  private extractYouTubeQuery(prompt: string): string {
-    const query = prompt
-      .replace(/[!?.,;:]+$/g, '')
-      .replace(/^\s*(?:джарвис|jarvis)[,\s:]*/i, '')
-      .replace(/^(?:открой|запусти|перейди|зайди)\s+/i, '')
-      .replace(/(?:ютуб|youtube|видео на ютубе)\s*/i, '')
-      .replace(/(?:в\s+)?(?:хроме|chrome|браузере)\s*/i, '')
-      .replace(/(?:и\s+)?(?:найди|поищи|ищи|поиск)\s+(?:там\s+)?/i, '')
-      .replace(/(?:^|\s)(?:видеоролик|видео|ролик)(?=\s|$)/gi, ' ')
-      .replace(/\s+и\s*$/i, '')
-      .trim();
-
-    return query;
-  }
-
   /**
    * Analyzes the user's high-level command and creates a structured execution plan.
+   * Primary engine: Intelligent AI LLM (Gemini / OpenRouter).
+   * Secondary engine: Robust deterministic sanitizer fallback.
    */
   public async createPlan(prompt: string): Promise<PlanResult> {
     const toolsDoc = toolRegistry.getToolDocumentation();
+
+    const systemPrompt = `You are JARVIS, an elite AI computer-use agent for Windows.
+Your job is to analyze user directives and construct a precise, multi-step plan using the available tools.
+
+CRITICAL UNDERSTANDING & QUERY CLEANING RULES:
+1. NEVER copy conversational filler, UI phrasing, or user command prefixes into search queries, URLs, or text inputs.
+   - User says: "открой новую вкладку в хроме зайди в ютуб и найди там плейлист из грустных песен и запусти этот ролик"
+     -> MUST extract the pure topic: "грустные песни"
+     -> Tool: browser.youtube_play_playlist with {"query": "грустные песни"}
+   - User says: "открой хром и найди информацию про искусственный интеллект"
+     -> Pure search query: "искусственный интеллект"
+     -> Tool: computer.open_app with {"appName": "chrome", "args": "https://www.google.com/search?q=%D0%B8%D1%81%D0%BA%D1%83%D1%81%D1%81%D1%82%D0%B2%D0%B5%D0%BD%D0%BD%D1%8B%D0%B9+%D0%B8%D0%BD%D1%82%D0%B5%D0%BB%D0%BB%D0%B5%D0%BA%D1%82"}
+   - User says: "открой блокнот и запиши что завтра в 5 встреча"
+     -> Text to type: "Завтра в 17:00 встреча"
+     -> Step 1: computer.open_app {"appName": "notepad"}
+     -> Step 2: computer.type {"text": "Завтра в 17:00 встреча", "pressEnter": true}
+
+2. YOUTUBE DIRECTIVES:
+   - If user asks for a YouTube playlist / playlist playback, use browser.youtube_play_playlist with the cleaned playlist topic.
+   - If user asks to search YouTube videos, use browser.open with "https://www.youtube.com/results?search_query=<cleaned_query>".
+
+3. TELEGRAM DIRECTIVES:
+   - To send a message or note into Telegram Saved Messages ("Избранное"):
+     Use computer.telegram_send_message with {"chat": "Избранное", "message": "<cleaned_text>"}.
+   - To send a message to a specific contact or chat:
+     Use computer.telegram_send_message with {"chat": "<chat_name>", "message": "<cleaned_message>"}.
+
+4. GENERAL CONVERSATION OR QUESTIONS:
+   - If user asks a general question (not an OS action), return empty initialToolCalls: [] and plan: ["Ответить пользователю"].
+
+AVAILABLE TOOLS:
+${toolsDoc}
+
+OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
+{
+  "thought": "Reasoning in Russian as JARVIS (1-2 sentences)",
+  "plan": [
+    "Шаг 1: ...",
+    "Шаг 2: ..."
+  ],
+  "initialToolCalls": [
+    { "name": "tool_name", "parameters": { ... } }
+  ]
+}`;
+
+    // ── 1. Primary Engine: AI Neural Planner (Gemini / OpenRouter) ──
+    try {
+      const raw = await brain.generate({
+        system: systemPrompt,
+        prompt: `User Directive: "${prompt}"`,
+        format: 'json',
+        temperature: 0.1,
+      });
+
+      const cleanJson = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      const rawToolCalls: PlannedToolCall[] = Array.isArray(parsed.initialToolCalls)
+        ? parsed.initialToolCalls
+        : parsed.initialToolCall
+          ? [parsed.initialToolCall]
+          : [];
+
+      // Sanitize all parameters to guarantee no conversational leaks
+      const sanitizedToolCalls = this.sanitizeToolCalls(rawToolCalls);
+
+      if (sanitizedToolCalls.length > 0 || (Array.isArray(parsed.plan) && parsed.plan.length > 0)) {
+        return {
+          thought: parsed.thought || 'План сформирован.',
+          plan: Array.isArray(parsed.plan) && parsed.plan.length > 0
+            ? parsed.plan
+            : [parsed.thought || 'Выполнить директиву'],
+          initialToolCalls: sanitizedToolCalls,
+          initialToolCall: sanitizedToolCalls[0],
+          llmPlanned: true,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[TaskPlanner] LLM planning error, engaging deterministic fallback:', err.message || err);
+    }
+
+    // ── 2. Secondary Engine: Robust Deterministic Rule-Based Fallback ──
     const lowerPrompt = prompt.toLowerCase();
+
+    // 1. YouTube Playlist
     const isYouTubePlaylistRequest =
       (lowerPrompt.includes('ютуб') || lowerPrompt.includes('youtube')) &&
       (lowerPrompt.includes('плейлист') || lowerPrompt.includes('playlist')) &&
-      (lowerPrompt.includes('найди') || lowerPrompt.includes('поищи') || lowerPrompt.includes('включ') || lowerPrompt.includes('постав'));
+      (lowerPrompt.includes('найди') || lowerPrompt.includes('поищи') || lowerPrompt.includes('включ') || lowerPrompt.includes('постав') || lowerPrompt.includes('запуст'));
+
+    if (isYouTubePlaylistRequest) {
+      const query = cleanYouTubePlaylistQuery(prompt);
+      return {
+        thought: `Понял, сэр. Открываю YouTube, нахожу плейлист «${query}» и включаю его.`,
+        plan: [
+          'Открыть YouTube в Chrome',
+          `Найти плейлист по запросу «${query}»`,
+          'Открыть первый подходящий плейлист и включить воспроизведение',
+        ],
+        initialToolCalls: [
+          { name: 'browser.youtube_play_playlist', parameters: { query } },
+        ],
+      };
+    }
+
+    // 2. YouTube Search
+    const isYouTubeSearchRequest =
+      (lowerPrompt.includes('ютуб') || lowerPrompt.includes('youtube')) &&
+      (lowerPrompt.includes('найди') || lowerPrompt.includes('поищи') || lowerPrompt.includes('поиск') || lowerPrompt.includes('видео') || lowerPrompt.includes('ролик'));
+
+    if (isYouTubeSearchRequest) {
+      const query = cleanYouTubeQuery(prompt);
+      const youtubeUrl = query
+        ? `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+        : 'https://www.youtube.com';
+      return {
+        thought: query
+          ? `Понял, сэр. Открываю YouTube и ищу «${query}».`
+          : 'Понял, сэр. Открываю YouTube.',
+        plan: query
+          ? ['Открыть YouTube в Chrome', `Найти видео по запросу «${query}»`]
+          : ['Открыть YouTube в Chrome'],
+        initialToolCalls: [
+          { name: 'browser.open', parameters: { url: youtubeUrl } },
+        ],
+      };
+    }
+
+    // 3. Telegram Message to contact
     const isTelegramSavedRequest =
       (lowerPrompt.includes('тг') || lowerPrompt.includes('телеграм') || lowerPrompt.includes('telegram')) &&
       (lowerPrompt.includes('избранн') || lowerPrompt.includes('saved messages') || lowerPrompt.includes('сохран'));
@@ -136,162 +249,11 @@ export class TaskPlanner {
       }
     }
 
-    if (isYouTubePlaylistRequest) {
-      const query = this.extractYouTubePlaylistQuery(prompt);
-      return {
-        thought: `Понял, сэр. Открываю YouTube, нахожу плейлист «${query}» и включаю его.`,
-        plan: [
-          'Открыть YouTube в Chrome',
-          `Найти плейлист по запросу «${query}»`,
-          'Открыть первый подходящий плейлист и включить воспроизведение',
-        ],
-        initialToolCalls: [
-          { name: 'browser.youtube_play_playlist', parameters: { query } },
-        ],
-      };
-    }
-
-    const isYouTubeSearchRequest =
-      (lowerPrompt.includes('ютуб') || lowerPrompt.includes('youtube')) &&
-      (lowerPrompt.includes('найди') || lowerPrompt.includes('поищи') || lowerPrompt.includes('поиск'));
-
-    if (isYouTubeSearchRequest) {
-      const query = this.extractYouTubeQuery(prompt);
-      const youtubeUrl = query
-        ? `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
-        : 'https://www.youtube.com';
-      return {
-        thought: query
-          ? `Понял, сэр. Открываю YouTube и ищу «${query}».`
-          : 'Понял, сэр. Открываю YouTube.',
-        plan: query
-          ? ['Открыть YouTube в Chrome', `Найти видео по запросу «${query}»`]
-          : ['Открыть YouTube в Chrome'],
-        initialToolCalls: [
-          { name: 'browser.open', parameters: { url: youtubeUrl } },
-        ],
-      };
-    }
-
-    // Keep Telegram Saved Messages navigation deterministic; chat search is timing-sensitive.
+    // 4. Telegram Saved Messages
     if (isTelegramSavedRequest) {
       const snippet = this.extractTelegramMessage(prompt);
       return {
         thought: 'Понял, сэр. Открываю Telegram, нахожу чат «Избранное» и отправляю ваше сообщение.',
-        plan: [
-          'Открыть Telegram и вывести окно на передний план',
-          'Найти чат «Избранное»',
-          'Написать и отправить сообщение',
-        ],
-        initialToolCalls: [
-          { name: 'computer.telegram_send_message', parameters: { chat: 'Избранное', message: snippet } },
-        ],
-      };
-    }
-
-    const isWebSearchRequest =
-      !lowerPrompt.includes('тг') && !lowerPrompt.includes('телеграм') && !lowerPrompt.includes('telegram') &&
-      (lowerPrompt.includes('хром') || lowerPrompt.includes('chrome') || lowerPrompt.includes('браузер') ||
-        lowerPrompt.includes('найди') || lowerPrompt.includes('поищи') || lowerPrompt.includes('поиск'));
-
-    if (isWebSearchRequest) {
-      const searchQuery = this.extractSearchQuery(prompt);
-      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`;
-      return {
-        thought: 'Понял, сэр. Открываю Chrome и сразу выполняю поиск по вашему запросу.',
-        plan: ['Открыть Google Chrome и выполнить поиск по запросу'],
-        initialToolCalls: [
-          { name: 'computer.open_app', parameters: { appName: 'chrome', args: searchUrl } },
-        ],
-      };
-    }
-
-    const systemPrompt = `You are JARVIS, a professional Windows computer-use agent.
-Break the user request into an accurate, executable plan using only the listed tools.
-Do not invent completed work. If the request is a question or conversation (not a desktop action), return an empty initialToolCalls array and a short plan like ["Ответить пользователю"].
-Tone in "thought": precise, adult, Russian.
-
-AVAILABLE TOOLS:
-${toolsDoc}
-
-MULTI-STEP IN-APP AUTOMATION RULES:
-1. When user asks to open Telegram and send a message or save information in "Избранное" / Saved Messages:
-   Step 1: computer.open_app with {"appName": "telegram"}
-   Step 2: computer.key with {"key": "escape"}
-   Step 3: computer.key with {"key": "ctrl+f"}
-  Step 4: computer.type with {"text": "Избранное"}
-  Step 5: computer.key with {"key": "enter"}
-  Step 6: computer.type with {"text": "<information or message>"}
-  Step 7: computer.key with {"key": "enter"}
-
-2. When user asks to open Notepad and write text:
-   Step 1: computer.open_app with {"appName": "notepad"}
-   Step 2: computer.type with {"text": "<text to write>", "pressEnter": true}
-
-3. When user asks to search the web in Chrome:
-   Step 1: computer.open_app with {"appName": "chrome", "args": "https://www.google.com/search?q=<query>"}
-
-4. When user asks to open an app (e.g. calculator, discord, code, telegram):
-   Step 1: computer.open_app with {"appName": "<name>"}
-
-OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
-{
-  "thought": "Reasoning in Russian as JARVIS",
-  "plan": [
-    "Шаг 1: Запустить Telegram Desktop",
-    "Шаг 2: Перейти в чат Избранное",
-    "Шаг 3: Напечатать и отправить сообщение"
-  ],
-  "initialToolCalls": [
-    { "name": "computer.open_app", "parameters": { "appName": "telegram" } },
-    { "name": "computer.key", "parameters": { "key": "escape" } },
-    { "name": "computer.key", "parameters": { "key": "ctrl+f" } },
-    { "name": "computer.type", "parameters": { "text": "Избранное" } },
-    { "name": "computer.key", "parameters": { "key": "enter" } },
-    { "name": "computer.type", "parameters": { "text": "Информация..." } },
-    { "name": "computer.key", "parameters": { "key": "enter" } }
-  ]
-}`;
-
-    try {
-      const raw = await brain.generate({
-        system: systemPrompt,
-        prompt: `User Directive: "${prompt}"`,
-        format: 'json',
-        temperature: 0.1,
-      });
-
-      const cleanJson = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-      const parsed = JSON.parse(cleanJson);
-
-      const toolCalls = Array.isArray(parsed.initialToolCalls)
-        ? parsed.initialToolCalls
-        : parsed.initialToolCall
-          ? [parsed.initialToolCall]
-          : [];
-
-      return {
-        thought: parsed.thought || 'План готов.',
-        plan: Array.isArray(parsed.plan) && parsed.plan.length > 0
-          ? parsed.plan
-          : [parsed.thought || 'Ответить пользователю'],
-        initialToolCalls: toolCalls,
-        initialToolCall: toolCalls[0],
-        llmPlanned: true,
-      };
-    } catch {}
-
-    // ── Smart Deterministic Multi-Step Fallbacks ──
-    const p = prompt.toLowerCase();
-
-    // 1. Telegram + Saved Messages / Messaging
-    if ((p.includes('тг') || p.includes('телеграм') || p.includes('telegram')) &&
-        (p.includes('избранн') || p.includes('отправ') || p.includes('напиш') || p.includes('сохран') || p.includes('сообщен'))) {
-      
-      const snippet = this.extractTelegramMessage(prompt);
-
-      return {
-        thought: 'Открываю Telegram, перехожу в чат «Избранное» и отправляю запрошенную информацию.',
         plan: [
           'Открыть Telegram и вывести окно на передний план',
           'Найти чат «Избранное»',
@@ -303,15 +265,15 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
       };
     }
 
-    // 2. Notepad + Write / Save
-    if ((p.includes('блокнот') || p.includes('notepad')) &&
-        (p.includes('напиш') || p.includes('запиш') || p.includes('встав') || p.includes('сохран'))) {
-      const textToWrite = this.generateTopicSnippet(prompt);
+    // 5. Notepad Write
+    if ((lowerPrompt.includes('блокнот') || lowerPrompt.includes('notepad')) &&
+        (lowerPrompt.includes('напиш') || lowerPrompt.includes('запиш') || lowerPrompt.includes('встав') || lowerPrompt.includes('сохран'))) {
+      const textToWrite = cleanSearchQuery(prompt);
       return {
         thought: 'Запускаю Блокнот и записываю текст.',
         plan: [
           'Открыть Блокнот',
-          'Напечатать текст'
+          'Напечатать текст',
         ],
         initialToolCalls: [
           { name: 'computer.open_app', parameters: { appName: 'notepad' } },
@@ -320,30 +282,36 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
       };
     }
 
-    // 3. Web Search / Chrome
-    if (p.includes('хром') || p.includes('chrome') || p.includes('браузер') || p.includes('найди') || p.includes('поищи') || p.includes('вкладк')) {
+    // 6. Web Search (Chrome / Browser)
+    const isWebSearchRequest =
+      !lowerPrompt.includes('тг') && !lowerPrompt.includes('телеграм') && !lowerPrompt.includes('telegram') &&
+      (lowerPrompt.includes('хром') || lowerPrompt.includes('chrome') || lowerPrompt.includes('браузер') ||
+        lowerPrompt.includes('найди') || lowerPrompt.includes('поищи') || lowerPrompt.includes('поиск') || lowerPrompt.includes('вкладк'));
+
+    if (isWebSearchRequest) {
+      const searchQuery = cleanSearchQuery(prompt);
+      const searchUrl = searchQuery
+        ? `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`
+        : 'https://www.google.com';
       return {
-        thought: 'Запускаю Google Chrome и выполняю поиск.',
-        plan: ['Открыть Google Chrome и выполнить поиск'],
+        thought: 'Понял, сэр. Открываю Chrome и выполняю поиск.',
+        plan: [`Открыть Google Chrome и выполнить поиск: «${searchQuery}»`],
         initialToolCalls: [
-          { name: 'computer.open_app', parameters: { appName: 'chrome', args: prompt } },
+          { name: 'computer.open_app', parameters: { appName: 'chrome', args: searchUrl } },
         ],
       };
     }
 
-    // 4. Telegram (just open)
-    if (p.includes('телеграм') || p.includes('telegram') || p.includes('тг')) {
+    // 7. General Apps
+    if (lowerPrompt.includes('телеграм') || lowerPrompt.includes('telegram') || lowerPrompt.includes('тг')) {
       return {
         thought: 'Вывожу Telegram Desktop на экран.',
         plan: ['Открыть приложение Telegram'],
-        initialToolCalls: [
-          { name: 'computer.open_app', parameters: { appName: 'telegram' } },
-        ],
+        initialToolCalls: [{ name: 'computer.open_app', parameters: { appName: 'telegram' } }],
       };
     }
 
-    // 5. General apps
-    if (p.includes('калькулятор') || p.includes('calc')) {
+    if (lowerPrompt.includes('калькулятор') || lowerPrompt.includes('calc')) {
       return {
         thought: 'Запускаю Калькулятор.',
         plan: ['Открыть Калькулятор'],
@@ -351,7 +319,7 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
       };
     }
 
-    if (p.includes('код') || p.includes('vscode') || p.includes('vs code')) {
+    if (lowerPrompt.includes('код') || lowerPrompt.includes('vscode') || lowerPrompt.includes('vs code')) {
       return {
         thought: 'Запускаю Visual Studio Code.',
         plan: ['Открыть редактор VS Code'],

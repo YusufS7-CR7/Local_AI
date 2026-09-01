@@ -174,10 +174,12 @@ export function useVoiceInterface(
           commandSTTRef.current.stop();
         } catch {}
       }
+      // Restart wake word detector so it listens for the next "Jarvis" trigger
       if (wakeDetectorRef.current) {
-        wakeDetectorRef.current.stop();
+        wakeDetectorRef.current.start();
       }
     } else {
+      // While agent is busy, pause the wake detector to avoid double-triggering
       if (wakeDetectorRef.current) {
         wakeDetectorRef.current.stop();
       }

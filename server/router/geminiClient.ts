@@ -17,7 +17,7 @@ export class GeminiClient {
 
   constructor() {
     this.apiKey = process.env.GEMINI_API_KEY || '';
-    this.defaultModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+    this.defaultModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
   }
 
   public isConfigured(): boolean {
@@ -54,7 +54,7 @@ export class GeminiClient {
     }
 
     const model = options.model || process.env.GEMINI_MODEL || this.defaultModel;
-    const candidates = [model, 'gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']
+    const candidates = [model, 'gemini-3.6-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash']
       .filter((m, i, arr) => Boolean(m) && arr.indexOf(m) === i);
 
     let lastError = '';

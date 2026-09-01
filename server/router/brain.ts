@@ -1,4 +1,5 @@
 import { geminiClient } from './geminiClient.js';
+import { openRouterClient } from './openRouterClient.js';
 import { ollamaClient } from './ollamaClient.js';
 
 export interface BrainGenerateOptions {
@@ -9,24 +10,33 @@ export interface BrainGenerateOptions {
   temperature?: number;
 }
 
-export type BrainProvider = 'gemini' | 'ollama';
+export type BrainProvider = 'gemini' | 'openrouter' | 'ollama';
 
 /**
  * Single entry point for LLM calls.
- * Gemini is the primary brain when GEMINI_API_KEY is set; Ollama is fallback only.
+ * Cascade order: Gemini -> OpenRouter -> Ollama (local offline fallback).
  */
 export class Brain {
   public getProvider(): BrainProvider {
-    return geminiClient.isConfigured() ? 'gemini' : 'ollama';
+    if (geminiClient.isConfigured()) return 'gemini';
+    if (openRouterClient.isConfigured()) return 'openrouter';
+    return 'ollama';
   }
 
   public isGemini(): boolean {
     return this.getProvider() === 'gemini';
   }
 
+  public isOpenRouter(): boolean {
+    return this.getProvider() === 'openrouter';
+  }
+
   public getModelName(): string {
     if (this.isGemini()) {
-      return process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+      return process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    }
+    if (this.isOpenRouter()) {
+      return openRouterClient.getModelName();
     }
     return 'qwen2.5:1.5b';
   }
@@ -36,11 +46,16 @@ export class Brain {
       const online = await geminiClient.checkHealth();
       return { provider: 'gemini', online, model: this.getModelName() };
     }
+    if (this.isOpenRouter()) {
+      const online = await openRouterClient.checkHealth();
+      return { provider: 'openrouter', online, model: this.getModelName() };
+    }
     const online = await ollamaClient.checkHealth();
     return { provider: 'ollama', online, model: this.getModelName() };
   }
 
   public async generate(options: BrainGenerateOptions): Promise<string> {
+    // 1. Try Google Gemini (Direct API)
     if (geminiClient.isConfigured()) {
       try {
         return await geminiClient.generate({
@@ -51,10 +66,26 @@ export class Brain {
           temperature: options.temperature,
         });
       } catch (err: any) {
-        console.error(`[Brain] Gemini failed (${err.message}). Falling back to Ollama.`);
+        console.error(`[Brain] Gemini failed (${err.message}). Trying OpenRouter / Ollama...`);
       }
     }
 
+    // 2. Try OpenRouter (Multi-model Cloud API)
+    if (openRouterClient.isConfigured()) {
+      try {
+        return await openRouterClient.generate({
+          prompt: options.prompt,
+          system: options.system,
+          images: options.images,
+          format: options.format,
+          temperature: options.temperature,
+        });
+      } catch (err: any) {
+        console.error(`[Brain] OpenRouter failed (${err.message}). Falling back to local Ollama...`);
+      }
+    }
+
+    // 3. Fallback to local Ollama
     return ollamaClient.generate({
       prompt: options.prompt,
       system: options.system,
@@ -65,6 +96,7 @@ export class Brain {
   }
 
   public async generateWithVision(options: { prompt: string; images: string[] }): Promise<string> {
+    // 1. Try Gemini Vision
     if (geminiClient.isConfigured()) {
       try {
         return await geminiClient.generateWithVision({
@@ -72,12 +104,23 @@ export class Brain {
           images: options.images,
         });
       } catch (err: any) {
-        console.error(`[Brain] Gemini vision failed (${err.message}). Falling back to Ollama.`);
+        console.error(`[Brain] Gemini vision failed (${err.message}). Trying OpenRouter / Ollama...`);
       }
     }
 
+    // 2. Try OpenRouter Vision
+    if (openRouterClient.isConfigured()) {
+      try {
+        return await openRouterClient.generateWithVision(options);
+      } catch (err: any) {
+        console.error(`[Brain] OpenRouter vision failed (${err.message}). Falling back to local Ollama...`);
+      }
+    }
+
+    // 3. Fallback to local Ollama Vision
     return ollamaClient.generateWithVision(options);
   }
 }
 
 export const brain = new Brain();
+

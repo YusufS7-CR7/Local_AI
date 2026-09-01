@@ -123,10 +123,8 @@ class TTSService {
     this.stop();
 
     try {
-      // 1. Try ElevenLabs High-Fidelity Audio API
-      const endpoint = typeof window !== 'undefined' && window.location.port === '3000'
-        ? '/api/tts'
-        : 'http://localhost:3001/api/tts';
+      // Use relative URL — Vite dev proxy routes /api → backend, production serves from same origin
+      const endpoint = '/api/tts';
 
       const response = await fetch(endpoint, {
         method: 'POST',

@@ -10,7 +10,7 @@ export type EventListener = (event: AgentEvent) => void;
 export class AgentLoop {
   private activeTask: AgentTask | null = null;
   private listeners: Set<EventListener> = new Set();
-  private maxSteps: number = 8;
+  private maxSteps: number = 20;
 
   public addListener(fn: EventListener): () => void {
     this.listeners.add(fn);

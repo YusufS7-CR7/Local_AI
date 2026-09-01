@@ -13,12 +13,13 @@ import { ollamaClient } from './router/ollamaClient.js';
 import { modelRouter } from './router/modelRouter.js';
 import { brain } from './router/brain.js';
 import { geminiClient } from './router/geminiClient.js';
+import { openRouterClient } from './router/openRouterClient.js';
 import { elevenLabsService } from './tts/elevenLabs.js';
 import { validateString, LIMITS } from './utils/apiGuard.js';
 
 dotenv.config();
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3002;
 
 // 1. Initialize Tools
 initializeTools();
@@ -109,6 +110,7 @@ app.get('/api/health', globalLimiter, async (_req, res) => {
     toolsCount: toolRegistry.getAll().length,
     brain: brainHealth,
     geminiConfigured: geminiClient.isConfigured(),
+    openRouterConfigured: openRouterClient.isConfigured(),
     ollamaConnected: ollamaOnline,
     modelConfig: modelRouter.getConfig(),
     activeClients: clients.size,

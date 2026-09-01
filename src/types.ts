@@ -74,6 +74,7 @@ export interface AgentState {
   }>;
   pendingConfirmation: ConfirmationRequest | null;
   serverConnected: boolean;
+  toolsCount: number;
 }
 
 /** Colour palette for each core mode */

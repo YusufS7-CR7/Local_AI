@@ -22,7 +22,7 @@ export class ModelRouter {
 
   private resolveConfig(): ModelConfig {
     const geminiKey = process.env.GEMINI_API_KEY;
-    const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+    const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
     if (geminiKey && geminiKey !== 'YOUR_GEMINI_KEY_HERE') {
       return {
         quick: geminiModel,
@@ -31,6 +31,18 @@ export class ModelRouter {
         coding: geminiModel,
       };
     }
+
+    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    const openRouterModel = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
+    if (openRouterKey && openRouterKey !== 'YOUR_OPENROUTER_KEY_HERE' && openRouterKey.startsWith('sk-or-')) {
+      return {
+        quick: openRouterModel,
+        reasoning: openRouterModel,
+        vision: openRouterModel,
+        coding: openRouterModel,
+      };
+    }
+
     return this.config;
   }
 

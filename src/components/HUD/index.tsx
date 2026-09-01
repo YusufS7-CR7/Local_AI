@@ -111,7 +111,9 @@ export const HUD: React.FC<HUDProps> = ({
       <div className="absolute top-12 right-12 flex flex-col items-end space-y-2 font-mono uppercase">
         <StatusIndicator 
           label="AGENT BACKEND" 
-          value={agentState.serverConnected ? 'ONLINE (29 TOOLS)' : 'RECONNECTING...'} 
+          value={agentState.serverConnected 
+            ? `ONLINE (${agentState.toolsCount || '–'} TOOLS)` 
+            : 'RECONNECTING...'} 
           active={agentState.serverConnected} 
         />
         <StatusIndicator label="AGENT STATUS" value={getStatusText()} active={coreState.mode !== 'idle'} />
@@ -120,54 +122,70 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Live Agent Action Feed (Left Center) */}
       {(agentState.currentStep || agentState.history.length > 0 || agentState.plan.length > 0) && (
-        <div className="absolute top-44 left-12 max-w-lg backdrop-blur-md bg-[#001020]/95 border border-[#00d4ff]/40 p-4 rounded-lg shadow-[0_0_30px_rgba(0,212,255,0.2)] space-y-3 pointer-events-auto animate-[fadeIn_0.3s_ease]">
-          <div className="flex items-center justify-between border-b border-[#00d4ff]/20 pb-2">
+        <div className="absolute top-44 left-12 max-w-lg w-80 backdrop-blur-md bg-[#001020]/95 border border-[#00d4ff]/40 p-4 rounded-lg shadow-[0_0_30px_rgba(0,212,255,0.2)] space-y-3 pointer-events-auto animate-[fadeIn_0.3s_ease] max-h-[calc(100vh-14rem)] flex flex-col">
+          <div className="flex items-center justify-between border-b border-[#00d4ff]/20 pb-2 flex-shrink-0">
             <span className="text-xs font-bold text-[#00d4ff] tracking-wider font-mono uppercase">AUTONOMOUS OS LOG</span>
             <span className="text-[10px] text-emerald-400 font-mono animate-pulse">● ACTIVE</span>
           </div>
 
-          {/* Current Plan */}
-          {agentState.plan.length > 0 && (
-            <div className="space-y-1">
-              <div className="text-[10px] opacity-60 font-mono uppercase">ПЛАН ДЕЙСТВИЙ:</div>
-              <div className="text-xs space-y-1 text-white/90">
-                {agentState.plan.map((p, i) => (
-                  <div key={i} className="flex items-start space-x-1.5">
-                    <span className="text-[#00d4ff] font-mono font-bold">{i + 1}.</span>
-                    <span className="leading-snug">{p}</span>
+          {/* Scrollable content area */}
+          <div className="overflow-y-auto flex-1 space-y-3 pr-1">
+            {/* Current Plan */}
+            {agentState.plan.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-[10px] opacity-60 font-mono uppercase">ПЛАН ДЕЙСТВИЙ:</div>
+                <div className="text-xs space-y-1 text-white/90">
+                  {agentState.plan.map((p, i) => (
+                    <div key={i} className="flex items-start space-x-1.5">
+                      <span className="text-[#00d4ff] font-mono font-bold">{i + 1}.</span>
+                      <span className="leading-snug">{p}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Completed Step History */}
+            {agentState.history.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-[10px] opacity-60 font-mono uppercase">ВЫПОЛНЕНО:</div>
+                {agentState.history.slice(-4).map((h, i) => (
+                  <div key={i} className="text-[10px] text-emerald-400/80 font-mono flex items-start gap-1.5 bg-emerald-950/20 px-2 py-1 rounded">
+                    <span className="text-emerald-500">✓</span>
+                    <span className="break-all">{h.toolName} — {h.observation?.slice(0, 60)}{(h.observation?.length ?? 0) > 60 ? '…' : ''}</span>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Current Executing Step */}
-          {agentState.currentStep && (
-            <div className="bg-[#002244]/70 border border-[#00e5ff]/30 p-2.5 rounded text-xs space-y-1.5">
-              <div className="text-[10px] text-[#00e5ff] font-bold font-mono uppercase">
-                ТЕКУЩЕЕ ДЕЙСТВИЕ [ШАГ {agentState.currentStep.stepIndex}]:
-              </div>
-              <div className="text-white font-mono text-[11px] bg-black/50 p-2 rounded break-all">
-                ⚡ {agentState.currentStep.toolName}({formatStepParameters(agentState.currentStep.toolName, agentState.currentStep.parameters)})
-              </div>
-              {agentState.currentStep.observation && (
-                <div className="text-[11px] text-emerald-300 leading-relaxed pt-0.5">
-                  <span className="font-mono text-[10px] uppercase text-emerald-400 font-bold mr-1">РЕЗУЛЬТАТ:</span>
-                  {agentState.currentStep.observation}
+            {/* Current Executing Step */}
+            {agentState.currentStep && (
+              <div className="bg-[#002244]/70 border border-[#00e5ff]/30 p-2.5 rounded text-xs space-y-1.5">
+                <div className="text-[10px] text-[#00e5ff] font-bold font-mono uppercase">
+                  ТЕКУЩЕЕ ДЕЙСТВИЕ [ШАГ {agentState.currentStep.stepIndex}]:
                 </div>
-              )}
-            </div>
-          )}
+                <div className="text-white font-mono text-[11px] bg-black/50 p-2 rounded break-all">
+                  ⚡ {agentState.currentStep.toolName}({formatStepParameters(agentState.currentStep.toolName, agentState.currentStep.parameters)})
+                </div>
+                {agentState.currentStep.observation && (
+                  <div className="text-[11px] text-emerald-300 leading-relaxed pt-0.5">
+                    <span className="font-mono text-[10px] uppercase text-emerald-400 font-bold mr-1">РЕЗУЛЬТАТ:</span>
+                    {agentState.currentStep.observation}
+                  </div>
+                )}
+              </div>
+            )}
 
-          {/* Final Response */}
-          {voiceState.lastAiResponse && (
-            <div className="text-xs border-t border-[#00d4ff]/20 pt-2.5">
-              <span className="text-pink-400 font-bold font-mono">JARVIS: </span>
-              <span className="text-white/95 leading-relaxed font-sans text-[13px]">
-                {voiceState.lastAiResponse}
-              </span>
-            </div>
-          )}
+            {/* Final Response */}
+            {voiceState.lastAiResponse && (
+              <div className="text-xs border-t border-[#00d4ff]/20 pt-2.5">
+                <span className="text-pink-400 font-bold font-mono">JARVIS: </span>
+                <span className="text-white/95 leading-relaxed font-sans text-[13px]">
+                  {voiceState.lastAiResponse}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

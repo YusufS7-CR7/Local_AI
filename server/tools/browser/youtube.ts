@@ -1,5 +1,6 @@
 import { ITool, ToolResult } from '../types.js';
 import { browserSession } from './browserSession.js';
+import { cleanYouTubePlaylistQuery } from '../../utils/queryCleaner.js';
 
 export const youtubePlayPlaylistTool: ITool = {
   name: 'browser.youtube_play_playlist',
@@ -17,8 +18,9 @@ export const youtubePlayPlaylistTool: ITool = {
   async execute(params: { query: string }): Promise<ToolResult> {
     try {
       const page = await browserSession.getActivePage();
-      const query = params.query.trim();
-      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${query} плейлист`)}`;
+      const rawQuery = params.query.trim();
+      const cleanTopic = cleanYouTubePlaylistQuery(rawQuery);
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${cleanTopic} плейлист`)}`;
 
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
       const playlistLink = page.locator('a[href*="/playlist?list="]:visible').first();

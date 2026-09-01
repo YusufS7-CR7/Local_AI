@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { runPowerShell } from '../../utils/powershell.js';
+import { cleanSearchQuery } from '../../utils/queryCleaner.js';
 
 const execAsync = promisify(exec);
 
@@ -310,13 +311,15 @@ export const openAppTool: ITool = {
           const parts = targetUrl.split(/(?=[?&]q=)/);
           const base = parts[0];
           const queryPart = parts[1] || '';
-          const cleanQuery = queryPart.replace(/^[?&]q=/, '').trim();
-          targetUrl = `${base}?q=${encodeURIComponent(decodeURIComponent(cleanQuery.replace(/\+/g, ' ')))}`;
+          const rawQuery = decodeURIComponent(queryPart.replace(/^[?&]q=/, '').replace(/\+/g, ' '));
+          const clean = cleanSearchQuery(rawQuery);
+          targetUrl = `${base}?q=${encodeURIComponent(clean)}`;
         }
       } else if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\/.*)?$/.test(targetUrl)) {
         targetUrl = `https://${targetUrl}`;
       } else {
-        targetUrl = `https://www.google.com/search?q=${encodeURIComponent(targetUrl)}`;
+        const clean = cleanSearchQuery(targetUrl);
+        targetUrl = `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
       }
 
       try {
