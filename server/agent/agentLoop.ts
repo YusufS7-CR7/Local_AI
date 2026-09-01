@@ -169,8 +169,8 @@ export class AgentLoop {
           });
         }
 
-        // Pacing delay between physical desktop actions
-        await new Promise(r => setTimeout(r, 650));
+        // Minimal delay between actions for instant continuous execution
+        await new Promise(r => setTimeout(r, 50));
 
         // Evaluate if entire queue is empty
         if (toolQueue.length === 0 && verification.verified) {
@@ -212,7 +212,7 @@ export class AgentLoop {
   }
 
   /**
-   * Uses LLM to decide the next step based on observations.
+   * Uses Multimodal Vision AI to decide the next step based on live screen state and observations.
    */
   private async decideNextStep(task: AgentTask): Promise<{ name: string; parameters: Record<string, any> } | undefined> {
     const toolsDoc = toolRegistry.getToolDocumentation();
@@ -227,16 +227,35 @@ Plan: ${task.plan.join(', ')}
 Execution History:
 ${history || 'No steps executed yet.'}
 
-Determine the next single tool action to take, or finish if goal is accomplished.
+Look at the live Windows screen image and execution history.
+Determine the next single tool action to take, or finish if goal is fully accomplished.
 Return STRICT JSON ONLY:
 {
-  "thought": "Reasoning for next step",
+  "thought": "Reasoning for next step based on visible screen state",
   "toolCall": {
     "name": "tool.name (or 'finish' if done)",
     "parameters": {}
   }
 }`;
 
+    // 1. Try Vision-enabled decision (sees live desktop state)
+    try {
+      const screenRes = await screenshotTool.execute({ resizeWidth: 1024 });
+      if (screenRes.success && screenRes.screenshot) {
+        const imageBase64 = screenRes.screenshot.replace(/^data:image\/\w+;base64,/, '');
+        const raw = await brain.generateWithVision({
+          prompt: `You are JARVIS, an autonomous visual computer-use agent.\nAvailable Tools:\n${toolsDoc}\n\n${prompt}`,
+          images: [imageBase64],
+        });
+        const clean = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+        const parsed = JSON.parse(clean);
+        if (parsed?.toolCall) {
+          return parsed.toolCall;
+        }
+      }
+    } catch {}
+
+    // 2. Text-only fallback decision
     try {
       const raw = await brain.generate({
         prompt,

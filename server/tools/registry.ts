@@ -32,6 +32,14 @@ const TOOL_ALIASES: Record<string, string> = {
   'computer.take_screenshot': 'computer.screenshot',
   'screen.capture': 'computer.screenshot',
 
+  // Visual Grounding & Locators
+  'visual_click': 'computer.visual_click',
+  'visual_locate': 'computer.visual_click',
+  'computer.visual_locate': 'computer.visual_click',
+  'click_element': 'computer.visual_click',
+  'computer.click_element': 'computer.visual_click',
+  'click_button': 'computer.visual_click',
+
   // Filesystem
   'search_files': 'filesystem.search',
   'find_files': 'filesystem.search',

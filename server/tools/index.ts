@@ -9,6 +9,7 @@ import { openAppTool, closeAppTool } from './computer/app.js';
 import { executeCommandTool } from './computer/command.js';
 import { readScreenTool } from './computer/screen.js';
 import { telegramSendMessageTool } from './computer/telegram.js';
+import { visualLocateAndClickTool } from './computer/visualLocator.js';
 
 // Browser Tools
 import { browserOpenTool, browserNavigateTool, browserNewTabTool, browserCloseTabTool, browserListTabsTool, browserSwitchTabTool } from './browser/navigation.js';
@@ -36,6 +37,7 @@ export function initializeTools(): void {
   toolRegistry.register(executeCommandTool);
   toolRegistry.register(readScreenTool);
   toolRegistry.register(telegramSendMessageTool);
+  toolRegistry.register(visualLocateAndClickTool);
 
   // Register Browser Tools
   toolRegistry.register(browserOpenTool);
