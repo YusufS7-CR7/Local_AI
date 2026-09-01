@@ -131,7 +131,7 @@ ${toolsDoc}
 
 OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
 {
-  "thought": "Reasoning in Russian as JARVIS (1-2 sentences)",
+  "thought": "Always start with 'Понял, сэр.' followed by 1 concise Russian sentence explaining what you will do (e.g. 'Понял, сэр. Открываю Chrome и выполняю поиск.')",
   "plan": [
     "Шаг 1: ...",
     "Шаг 2: ..."
@@ -163,11 +163,15 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
       const sanitizedToolCalls = this.sanitizeToolCalls(rawToolCalls);
 
       if (sanitizedToolCalls.length > 0 || (Array.isArray(parsed.plan) && parsed.plan.length > 0)) {
+        let thought = parsed.thought || 'План сформирован.';
+        if (!thought.startsWith('Понял, сэр')) {
+          thought = `Понял, сэр. ${thought}`;
+        }
         return {
-          thought: parsed.thought || 'План сформирован.',
+          thought,
           plan: Array.isArray(parsed.plan) && parsed.plan.length > 0
             ? parsed.plan
-            : [parsed.thought || 'Выполнить директиву'],
+            : [thought],
           initialToolCalls: sanitizedToolCalls,
           initialToolCall: sanitizedToolCalls[0],
           llmPlanned: true,

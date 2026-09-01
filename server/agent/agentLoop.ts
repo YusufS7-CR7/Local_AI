@@ -107,6 +107,17 @@ export class AgentLoop {
           timestamp: Date.now(),
         };
 
+        // ── Step Spoken Progress ──
+        const stepAnnouncement = this.getStepSpokenProgress(tool.name, step.parameters, planStepDescription);
+        if (stepAnnouncement) {
+          this.emit({
+            type: 'ASSISTANT_MESSAGE',
+            taskId,
+            status: 'speaking',
+            message: stepAnnouncement,
+          });
+        }
+
         // ── Safety & Permission Check ──
         const safetyCheck = safetyManager.requiresConfirmation(tool, step.parameters || {});
         if (safetyCheck.required) {
@@ -146,18 +157,45 @@ export class AgentLoop {
 
         step.result = result.data;
         step.observation = this.getUserObservation(tool.name, result);
-        if (!verification.verified) {
-          step.observation += ` Проверка: ${verification.observation}`;
-          const retryKey = `${tool.name}:${JSON.stringify(step.parameters || {})}`;
-          const retries = verificationRetries.get(retryKey) || 0;
-          if (retries < 1) {
-            verificationRetries.set(retryKey, retries + 1);
-            toolQueue.unshift(nextToolCall);
+        
+        if (!result.success || !verification.verified) {
+          const errorCode = !result.success
+            ? (tool.name.includes('telegram') ? 'ERR_TELEGRAM_ACTION_FAILED' : tool.name.includes('app') ? 'ERR_APP_FOCUS_FAILED' : 'ERR_TOOL_EXECUTION_FAILED')
+            : 'ERR_SCREEN_VERIFICATION_FAILED';
+
+          const errorDiag = {
+            errorCode,
+            failedStepIndex: currentStepIndex,
+            failedTool: tool.name,
+            parameters: step.parameters,
+            reason: result.error || verification.observation || 'Не удалось подтвердить выполнение на экране',
+            systemDetails: result.data || undefined,
+            suggestedFix: tool.name.includes('telegram')
+              ? 'Убедитесь, что Telegram Desktop запущен или установлен в стандартную директорию AppData.'
+              : 'Проверьте, не блокирует ли стороннее приложение вывод окна на передний план.',
+          };
+          step.diagnostics = errorDiag;
+          task.errorDiagnostics = errorDiag;
+
+          if (!verification.verified && result.success) {
+            step.observation += ` [Проверка: ${verification.observation}]`;
+            const retryKey = `${tool.name}:${JSON.stringify(step.parameters || {})}`;
+            const retries = verificationRetries.get(retryKey) || 0;
+            if (retries < 1) {
+              verificationRetries.set(retryKey, retries + 1);
+              toolQueue.unshift(nextToolCall);
+            }
           }
         }
-        task.steps.push(step);
 
-        this.emit({ type: 'STEP_FINISH', taskId, status: 'executing', step });
+        task.steps.push(step);
+        this.emit({ 
+          type: 'STEP_FINISH', 
+          taskId, 
+          status: 'executing', 
+          step,
+          errorDiagnostics: step.diagnostics,
+        });
         console.log(`[JARVIS Observe] ${step.observation}`);
 
         if (tool.name === 'browser.youtube_play_playlist' && result.success) {
@@ -169,8 +207,8 @@ export class AgentLoop {
           });
         }
 
-        // Minimal delay between actions for instant continuous execution
-        await new Promise(r => setTimeout(r, 50));
+        // Minimal delay between actions for smooth continuous execution
+        await new Promise(r => setTimeout(r, 80));
 
         // Evaluate if entire queue is empty
         if (toolQueue.length === 0 && verification.verified) {
@@ -182,14 +220,16 @@ export class AgentLoop {
       task.status = 'speaking';
       finalSummary = finalSummary || await this.generateFinalResponse(task);
       task.finalResponse = finalSummary;
-      task.status = 'completed';
+      task.status = task.errorDiagnostics && !isTaskFinished ? 'error' : 'completed';
       task.endTime = Date.now();
 
       this.emit({
-        type: 'TASK_COMPLETE',
+        type: task.status === 'error' ? 'ERROR' : 'TASK_COMPLETE',
         taskId,
-        status: 'completed',
+        status: task.status,
         finalResponse: finalSummary,
+        error: task.errorDiagnostics?.reason,
+        errorDiagnostics: task.errorDiagnostics,
       });
 
       console.log(`[JARVIS Agent] Final Response:\n"${finalSummary}"\n`);
@@ -198,6 +238,11 @@ export class AgentLoop {
       console.error('[JARVIS Agent] Task execution failure:', err);
       task.status = 'error';
       task.error = err.message;
+      task.errorDiagnostics = {
+        errorCode: 'ERR_AGENT_CRITICAL_FAILURE',
+        reason: err.message || String(err),
+        suggestedFix: 'Проверьте сетевое подключение к LLM и права доступа PowerShell.',
+      };
       task.endTime = Date.now();
 
       this.emit({
@@ -205,6 +250,7 @@ export class AgentLoop {
         taskId,
         status: 'error',
         error: err.message,
+        errorDiagnostics: task.errorDiagnostics,
       });
 
       return task;
@@ -280,11 +326,65 @@ Return STRICT JSON ONLY:
     return result.message || (result.success ? 'Действие выполнено.' : `Ошибка: ${result.error}`);
   }
 
+  private getStepSpokenProgress(toolName: string, parameters?: Record<string, any>, planStep?: string): string {
+    const params = parameters || {};
+    
+    if (toolName === 'computer.open_app') {
+      const app = (params.appName || '').toLowerCase();
+      if (app.includes('telegram') || app.includes('тг')) {
+        return 'Вывожу Telegram на передний план...';
+      }
+      if (app.includes('chrome') || app.includes('браузер') || app.includes('хром')) {
+        return 'Запускаю браузер Chrome...';
+      }
+      if (app.includes('notepad') || app.includes('блокнот')) {
+        return 'Открываю Блокнот...';
+      }
+      if (app.includes('code') || app.includes('vscode')) {
+        return 'Открываю Visual Studio Code...';
+      }
+      if (app.includes('calc')) {
+        return 'Запускаю Калькулятор...';
+      }
+      return `Открываю приложение ${params.appName || 'на ПК'}...`;
+    }
+
+    if (toolName === 'computer.telegram_send_message') {
+      const chat = params.chat || 'Избранное';
+      return `Открываю чат «${chat}» в Telegram и отправляю сообщение...`;
+    }
+
+    if (toolName === 'browser.youtube_play_playlist') {
+      return `Ищу плейлист «${params.query || ''}» на YouTube и включаю...`;
+    }
+
+    if (toolName === 'computer.switch_window') {
+      return `Переключаюсь на окно «${params.query || ''}»...`;
+    }
+
+    if (toolName === 'computer.type') {
+      return 'Ввожу текст в активное окно...';
+    }
+
+    if (toolName === 'computer.screenshot' || toolName === 'computer.read_screen') {
+      return 'Проверяю состояние экрана...';
+    }
+
+    if (planStep) {
+      return `${planStep}...`;
+    }
+
+    return 'Выполняю следующий шаг, сэр...';
+  }
+
   private getOpeningMessage(prompt: string): string {
     const lowerPrompt = prompt.toLowerCase();
     if ((lowerPrompt.includes('ютуб') || lowerPrompt.includes('youtube')) &&
         (lowerPrompt.includes('плейлист') || lowerPrompt.includes('playlist'))) {
       return 'Понял, сэр. Открываю Chrome, ищу нужный плейлист на YouTube.';
+    }
+    if (lowerPrompt.includes('telegram') || lowerPrompt.includes('телеграм') || lowerPrompt.includes('тг')) {
+      return 'Принято, сэр. Занимаюсь Telegram.';
     }
     return 'Понял, сэр. Выполняю вашу команду.';
   }

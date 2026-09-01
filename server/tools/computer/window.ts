@@ -1,5 +1,6 @@
 import { ITool, ToolResult } from '../types.js';
 import { runPowerShell } from '../../utils/powershell.js';
+import { activateAndForegroundApp } from '../../utils/windowActivator.js';
 
 export const listWindowsTool: ITool = {
   name: 'computer.list_windows',
@@ -45,7 +46,7 @@ export const listWindowsTool: ITool = {
 export const switchWindowTool: ITool = {
   name: 'computer.switch_window',
   category: 'computer',
-  description: 'Brings an application window to the foreground by its title or process name.',
+  description: 'Brings an application window to the foreground by its title or process name, restoring it from tray if needed.',
   parameters: [
     {
       name: 'query',
@@ -56,37 +57,19 @@ export const switchWindowTool: ITool = {
   ],
   dangerLevel: 'safe',
   async execute(params: { query: string }): Promise<ToolResult> {
-    try {
-      const script = `
-        Add-Type -TypeDefinition @"
-        using System;
-        using System.Runtime.InteropServices;
-        public class WinFocus {
-            [DllImport("user32.dll")]
-            public static extern bool SetForegroundWindow(IntPtr hWnd);
-            [DllImport("user32.dll")]
-            public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-        }
-"@
-        $target = Get-Process | Where-Object { 
-            ($_.MainWindowTitle -like '*${params.query}*' -or $_.ProcessName -like '*${params.query}*') -and $_.MainWindowHandle -ne 0 
-        } | Select-Object -First 1
-
-        if ($target) {
-            [WinFocus]::ShowWindow($target.MainWindowHandle, 9)
-            [WinFocus]::SetForegroundWindow($target.MainWindowHandle)
-            Write-Output "Focused: $($target.MainWindowTitle) ($($target.ProcessName))"
-        } else {
-            Write-Error "Window matching '${params.query}' not found."
-        }
-      `;
-      const { stdout } = await runPowerShell(script);
+    const activation = await activateAndForegroundApp(params.query);
+    if (activation.success) {
       return {
         success: true,
-        message: stdout.trim() || `Switched to window: ${params.query}`,
+        message: activation.message,
+        data: activation.diagnostics,
       };
-    } catch (err: any) {
-      return { success: false, error: `Failed to switch window: ${err.message}` };
     }
+    return {
+      success: false,
+      error: activation.error || activation.message,
+      data: activation.diagnostics,
+    };
   },
 };
+

@@ -1,11 +1,6 @@
 import { ITool, ToolResult } from '../types.js';
 import { runPowerShell } from '../../utils/powershell.js';
-import { resolveAppPath } from './app.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs';
-
-const execAsync = promisify(exec);
+import { activateAndForegroundApp } from '../../utils/windowActivator.js';
 
 function escapePowerShellLiteral(value: string): string {
   return value.replace(/'/g, "''");
@@ -14,7 +9,7 @@ function escapePowerShellLiteral(value: string): string {
 export const telegramSendMessageTool: ITool = {
   name: 'computer.telegram_send_message',
   category: 'computer',
-  description: 'Brings Telegram to the foreground, finds a contact or Saved Messages (Избранное), opens the chat, and sends a message.',
+  description: 'Brings Telegram to the foreground (including restoring from tray), finds a contact or Saved Messages (Избранное), opens the chat, and sends a message.',
   parameters: [
     { name: 'chat', type: 'string', description: 'Chat name, username, or "Избранное" / "Saved Messages"', required: true },
     { name: 'message', type: 'string', description: 'Message text to send', required: true },
@@ -28,33 +23,33 @@ export const telegramSendMessageTool: ITool = {
     }
 
     try {
-      // 1. Resolve exact Telegram executable path on disk
-      const { targetPath } = resolveAppPath('telegram');
-
-      // 2. Launch / Restore Telegram from tray
-      if (targetPath && fs.existsSync(targetPath)) {
-        await execAsync(`cmd.exe /c start "" "${targetPath}"`);
-      } else {
-        await execAsync(`cmd.exe /c start tg://`);
+      // 1. Bring Telegram window to foreground layer (from Tray or Disk)
+      const activation = await activateAndForegroundApp('telegram');
+      if (!activation.success) {
+        return {
+          success: false,
+          error: `Не удалось вывести Telegram на передний план: ${activation.error || activation.message}`,
+          data: activation.diagnostics,
+        };
       }
 
-      // 3. PowerShell script: Wait for window, force foreground, search chat and send message
+      // Small stabilization delay for UI render
+      await new Promise(r => setTimeout(r, 600));
+
+      // 2. PowerShell script: focus Telegram, search chat and send message
       const chatLiteral = escapePowerShellLiteral(chat);
       const messageLiteral = escapePowerShellLiteral(message);
+      const targetPid = activation.diagnostics?.pid || 0;
 
       const script = `
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public class WinTelegram {
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-    [DllImport("user32.dll")]
-    public static extern bool IsIconic(IntPtr hWnd);
-    [DllImport("user32.dll")]
-    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
     
     public static void Activate(IntPtr hWnd) {
         if (hWnd == IntPtr.Zero) return;
@@ -70,29 +65,13 @@ public class WinTelegram {
 }
 "@ -ErrorAction SilentlyContinue
 
-$foundProc = $null
-for ($i = 0; $i -lt 20; $i++) {
-    Start-Sleep -Milliseconds 250
-    $proc = Get-Process -ErrorAction SilentlyContinue | Where-Object { 
-        $_.ProcessName -like "*telegram*" -and $_.MainWindowHandle -ne 0 
-    } | Select-Object -First 1
-    if ($proc) {
-        $foundProc = $proc
-        break
-    }
-}
-
-if (-not $foundProc) {
-    throw 'Окно Telegram не появилось на экране (проверьте, установлен ли Telegram Desktop).'
-}
-
-# Bring Telegram window to foreground
-[WinTelegram]::Activate($foundProc.MainWindowHandle)
-Start-Sleep -Milliseconds 600
-
 $wshell = New-Object -ComObject WScript.Shell
-$wshell.AppActivate($foundProc.Id) | Out-Null
-Start-Sleep -Milliseconds 300
+$pidNum = ${targetPid}
+
+if ($pidNum -gt 0) {
+    $wshell.AppActivate($pidNum) | Out-Null
+    Start-Sleep -Milliseconds 250
+}
 
 # Clear search / unselect
 $wshell.SendKeys('{ESC}')
@@ -100,16 +79,16 @@ Start-Sleep -Milliseconds 200
 
 # Open Search (Ctrl+K or Ctrl+F)
 $wshell.SendKeys('^k')
-Start-Sleep -Milliseconds 500
+Start-Sleep -Milliseconds 400
 
 # Paste chat name
 Set-Clipboard -Value '${chatLiteral}'
 $wshell.SendKeys('^v')
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 1000
 
 # Select first chat
 $wshell.SendKeys('~')
-Start-Sleep -Milliseconds 800
+Start-Sleep -Milliseconds 600
 
 # Escape out of search box into message input
 $wshell.SendKeys('{ESC}')
@@ -132,6 +111,7 @@ Start-Sleep -Milliseconds 400
       return {
         success: true,
         message: `В Telegram открыт чат «${chat}» и отправлено сообщение.`,
+        data: activation.diagnostics,
       };
     } catch (err: any) {
       return {

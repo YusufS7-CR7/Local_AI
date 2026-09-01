@@ -55,6 +55,25 @@ export interface ConfirmationRequest {
   timestamp: number;
 }
 
+/** Structured Diagnostic Error details for HUD */
+export interface ErrorDiagnostics {
+  errorCode: string;
+  failedStepIndex?: number;
+  failedTool?: string;
+  parameters?: Record<string, any>;
+  reason: string;
+  systemDetails?: {
+    processName?: string;
+    pid?: number;
+    hwnd?: string;
+    wasInTray?: boolean;
+    allFoundPids?: number[];
+    windowsCount?: number;
+    rawLog?: string;
+  };
+  suggestedFix?: string;
+}
+
 /** Computer Use Agent state for UI */
 export interface AgentState {
   taskId: string | null;
@@ -66,6 +85,7 @@ export interface AgentState {
     toolName?: string;
     parameters?: Record<string, any>;
     observation?: string;
+    diagnostics?: ErrorDiagnostics;
   } | null;
   history: Array<{
     stepIndex: number;
@@ -75,6 +95,7 @@ export interface AgentState {
   pendingConfirmation: ConfirmationRequest | null;
   serverConnected: boolean;
   toolsCount: number;
+  errorDiagnostics?: ErrorDiagnostics | null;
 }
 
 /** Colour palette for each core mode */

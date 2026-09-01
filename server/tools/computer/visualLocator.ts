@@ -100,3 +100,4 @@ export const visualLocateAndClickTool: ITool = {
     }
   },
 };
+

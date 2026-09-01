@@ -121,11 +121,13 @@ export const HUD: React.FC<HUDProps> = ({
       </div>
 
       {/* Live Agent Action Feed (Left Center) */}
-      {(agentState.currentStep || agentState.history.length > 0 || agentState.plan.length > 0) && (
-        <div className="absolute top-44 left-12 max-w-lg w-80 backdrop-blur-md bg-[#001020]/95 border border-[#00d4ff]/40 p-4 rounded-lg shadow-[0_0_30px_rgba(0,212,255,0.2)] space-y-3 pointer-events-auto animate-[fadeIn_0.3s_ease] max-h-[calc(100vh-14rem)] flex flex-col">
+      {(agentState.currentStep || agentState.history.length > 0 || agentState.plan.length > 0 || agentState.errorDiagnostics) && (
+        <div className="absolute top-44 left-12 max-w-xl w-96 backdrop-blur-md bg-[#001020]/95 border border-[#00d4ff]/40 p-4 rounded-lg shadow-[0_0_30px_rgba(0,212,255,0.2)] space-y-3 pointer-events-auto animate-[fadeIn_0.3s_ease] max-h-[calc(100vh-14rem)] flex flex-col">
           <div className="flex items-center justify-between border-b border-[#00d4ff]/20 pb-2 flex-shrink-0">
             <span className="text-xs font-bold text-[#00d4ff] tracking-wider font-mono uppercase">AUTONOMOUS OS LOG</span>
-            <span className="text-[10px] text-emerald-400 font-mono animate-pulse">● ACTIVE</span>
+            <span className={`text-[10px] font-mono ${agentState.errorDiagnostics ? 'text-red-400 animate-pulse' : 'text-emerald-400 animate-pulse'}`}>
+              ● {agentState.errorDiagnostics ? 'DIAGNOSTIC ALERT' : 'ACTIVE'}
+            </span>
           </div>
 
           {/* Scrollable content area */}
@@ -171,6 +173,40 @@ export const HUD: React.FC<HUDProps> = ({
                   <div className="text-[11px] text-emerald-300 leading-relaxed pt-0.5">
                     <span className="font-mono text-[10px] uppercase text-emerald-400 font-bold mr-1">РЕЗУЛЬТАТ:</span>
                     {agentState.currentStep.observation}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Structured Diagnostic Error Panel */}
+            {agentState.errorDiagnostics && (
+              <div className="bg-[#250808]/95 border-2 border-red-500 p-3 rounded text-xs space-y-1.5 shadow-[0_0_20px_rgba(239,68,68,0.4)]">
+                <div className="flex items-center justify-between text-red-400 font-bold font-mono text-[10px] uppercase border-b border-red-500/40 pb-1">
+                  <span className="flex items-center gap-1">🚨 КОД ОШИБКИ: {agentState.errorDiagnostics.errorCode}</span>
+                  <span>ШАГ {agentState.errorDiagnostics.failedStepIndex || '–'}</span>
+                </div>
+                <div className="text-[11px] text-red-200">
+                  <span className="font-mono text-red-400 font-bold uppercase">ИНСТРУМЕНТ: </span>
+                  <span className="font-mono bg-red-950/80 px-1 py-0.5 rounded">{agentState.errorDiagnostics.failedTool || '–'}</span>
+                </div>
+                <div className="text-[11px] text-white/95 leading-snug">
+                  <span className="font-mono text-red-400 font-bold uppercase">ПРИЧИНА: </span>
+                  {agentState.errorDiagnostics.reason}
+                </div>
+                {agentState.errorDiagnostics.systemDetails && (
+                  <div className="bg-black/80 p-2 rounded text-[10px] font-mono text-yellow-300 border border-yellow-500/30 space-y-0.5">
+                    <div className="text-yellow-400 font-bold">СИСТЕМНЫЙ СТАТУС:</div>
+                    <div>ПРОЦЕСС: {agentState.errorDiagnostics.systemDetails.processName || '–'} | PID: {agentState.errorDiagnostics.systemDetails.pid || 'Н/Д'}</div>
+                    <div>HWND: {agentState.errorDiagnostics.systemDetails.hwnd || '0'} | В ТРЕЕ: {agentState.errorDiagnostics.systemDetails.wasInTray ? 'ДА' : 'НЕТ'}</div>
+                    {agentState.errorDiagnostics.systemDetails.rawLog && (
+                      <div className="text-[9px] text-gray-300 truncate">LOG: {agentState.errorDiagnostics.systemDetails.rawLog}</div>
+                    )}
+                  </div>
+                )}
+                {agentState.errorDiagnostics.suggestedFix && (
+                  <div className="text-[10px] text-emerald-300 bg-emerald-950/60 p-2 rounded border border-emerald-500/40 leading-snug">
+                    <span className="font-bold text-emerald-400">💡 РЕКОМЕНДАЦИЯ: </span>
+                    {agentState.errorDiagnostics.suggestedFix}
                   </div>
                 )}
               </div>

@@ -123,6 +123,7 @@ class AgentSocketService {
                 currentStep: agentEvent.step || prev.currentStep,
                 history: updatedHistory,
                 pendingConfirmation: agentEvent.status !== 'awaiting_confirmation' ? null : prev.pendingConfirmation,
+                errorDiagnostics: agentEvent.errorDiagnostics || agentEvent.step?.diagnostics || prev.errorDiagnostics,
               };
             });
 
@@ -207,6 +208,7 @@ class AgentSocketService {
         currentStep: null,
         history: [],
         pendingConfirmation: null,
+        errorDiagnostics: null,
       }));
       this.ws.send(JSON.stringify({
         type: 'START_TASK',

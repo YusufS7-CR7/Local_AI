@@ -221,79 +221,7 @@ export function resolveAppPath(appName: string): { key: string; targetPath: stri
   return { key: canonicalKey, targetPath: null };
 }
 
-/**
- * Brings an existing running process window to the foreground or starts it cleanly.
- */
-/**
- * Launches an application via Windows Shell and brings its window to the foreground.
- */
-async function launchOrFocus(targetPath: string | null, fallbackKey: string, args: string = ''): Promise<{ success: boolean; message?: string; error?: string }> {
-  try {
-    // 1. Launch / Restore application via Windows ShellExecute
-    if (targetPath && fs.existsSync(targetPath)) {
-      await execAsync(`cmd.exe /c start "" "${targetPath}" ${args ? `"${args}"` : ''}`);
-    } else {
-      if (fallbackKey === 'calc') {
-        await execAsync(`cmd.exe /c start calculator:`);
-      } else {
-        await execAsync(`cmd.exe /c start ${fallbackKey} ${args ? `"${args}"` : ''}`);
-      }
-    }
-
-    // 2. Poll and bring window to front using Win32 API
-    const processSearchKey = fallbackKey.replace(/\.exe$/i, '');
-    const focusScript = `
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public class WinUtil {
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-    [DllImport("user32.dll")]
-    public static extern bool IsIconic(IntPtr hWnd);
-    [DllImport("user32.dll")]
-    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
-    
-    public static void Activate(IntPtr hWnd) {
-        if (hWnd == IntPtr.Zero) return;
-        if (IsIconic(hWnd)) {
-            ShowWindowAsync(hWnd, 9); // SW_RESTORE
-        } else {
-            ShowWindowAsync(hWnd, 5); // SW_SHOW
-        }
-        keybd_event(0x12, 0, 0, 0);
-        SetForegroundWindow(hWnd);
-        keybd_event(0x12, 0, 2, 0);
-    }
-}
-"@ -ErrorAction SilentlyContinue
-
-for ($i = 0; $i -lt 10; $i++) {
-    Start-Sleep -Milliseconds 250
-    $proc = Get-Process -ErrorAction SilentlyContinue | Where-Object { 
-        ($_.ProcessName -like "*${processSearchKey}*" -or $_.MainWindowTitle -like "*${processSearchKey}*") -and $_.MainWindowHandle -ne 0 
-    } | Select-Object -First 1
-    if ($proc) {
-        [WinUtil]::Activate($proc.MainWindowHandle)
-        break
-    }
-}
-`;
-    await runPowerShell(focusScript).catch(() => {});
-
-    return {
-      success: true,
-      message: `Приложение «${fallbackKey}» запущено и выведено на передний план.`,
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      error: `Ошибка при запуске «${fallbackKey}»: ${err.message}`,
-    };
-  }
-}
+import { activateAndForegroundApp } from '../../utils/windowActivator.js';
 
 export const openAppTool: ITool = {
   name: 'computer.open_app',
@@ -353,6 +281,9 @@ export const openAppTool: ITool = {
           await execAsync(`cmd.exe /c start "" "${targetUrl}"`);
         }
 
+        // Ensure browser window is pulled to the foreground
+        await activateAndForegroundApp(key, targetUrl).catch(() => {});
+
         return {
           success: true,
           message: `Открыт браузер с адресом: ${targetUrl}`,
@@ -365,9 +296,14 @@ export const openAppTool: ITool = {
       }
     }
 
-    // ── 2. Universal Application Launcher & Window Activator ──
-    const result = await launchOrFocus(targetPath, key, argList);
-    return result;
+    // ── 2. Universal Application Launcher & Window Activator (Tray + Foreground) ──
+    const activation = await activateAndForegroundApp(rawName, argList);
+    return {
+      success: activation.success,
+      message: activation.message,
+      error: activation.error,
+      data: activation.diagnostics,
+    };
   },
 };
 

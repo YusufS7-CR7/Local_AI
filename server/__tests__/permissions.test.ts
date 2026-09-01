@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { safetyManager } from '../safety/permissions.js';
 import { ITool } from '../tools/types.js';
+import { isAllowedStartCommand, isLikelyUrl } from '../tools/computer/command.js';
 
 describe('Safety Manager - User Input & Permissions', () => {
   it('should validate user input and reject malicious injections', () => {
@@ -47,6 +48,13 @@ describe('Safety Manager - User Input & Permissions', () => {
       command: 'echo "Hello"',
     });
     expect(safeCheck.required).toBe(false);
+  });
+
+  it('allows custom URL schemes such as Telegram deep links', () => {
+    expect(isLikelyUrl('tg://')).toBe(true);
+    expect(isLikelyUrl('telegram://')).toBe(true);
+    expect(isAllowedStartCommand('start tg://')).toBe(true);
+    expect(isAllowedStartCommand('start "tg://"')).toBe(true);
   });
 
   it('should require confirmation for filesystem deletion and path traversal', () => {

@@ -51,8 +51,9 @@ function isAllowedReadOnly(command: string): boolean {
   return ALLOWED_READONLY_POWERSHELL.some(p => p.test(trimmed));
 }
 
-function isLikelyUrl(input: string): boolean {
-  return /^(https?:\/\/|www\.)/i.test(input) ||
+export function isLikelyUrl(input: string): boolean {
+  return /^(?:[a-z][a-z0-9+.-]*:\/\/|[a-z][a-z0-9+.-]*:)/i.test(input) ||
+    /^(https?:\/\/|www\.)/i.test(input) ||
     /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\/.*)?$/.test(input);
 }
 
@@ -62,17 +63,16 @@ const ALLOWED_START_COMMANDS = new Set([
   'steam', 'vscode', 'winword', 'excel'
 ]);
 
-function isAllowedStartCommand(rawCmd: string): boolean {
+export function isAllowedStartCommand(rawCmd: string): boolean {
   const match = rawCmd.match(/^start\s+(?:""\s+)?(.+)$/i);
   if (!match) return false;
 
   const rest = match[1].trim();
   if (!rest) return false;
 
-  const urlLike = /^((https?:\/\/|www\.)[^\s]+|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\/.*)?)$/i;
-  if (urlLike.test(rest)) return true;
-
   const token = rest.replace(/^"|"$/g, '').replace(/^'|'$/g, '').trim();
+  if (isLikelyUrl(token)) return true;
+
   const appName = token.split(/\s+/)[0].toLowerCase();
   return ALLOWED_START_COMMANDS.has(appName) || ALLOWED_START_COMMANDS.has(token.toLowerCase());
 }
