@@ -299,27 +299,110 @@ export const HUD: React.FC<HUDProps> = ({
         </form>
       </div>
 
-      {/* Bottom Right: Quick Test Directives */}
-      <div className="absolute bottom-12 right-12 flex flex-col items-end space-y-1.5 pointer-events-auto">
-        <div className="text-[9px] opacity-50 mb-0.5 font-mono uppercase">БЫСТРЫЕ КОМАНДЫ:</div>
-        <button
-          onClick={() => onExecuteCommand('Открой Chrome и найди информацию про искусственный интеллект')}
-          className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all"
-        >
-          «Chrome: поиск про ИИ»
-        </button>
-        <button
-          onClick={() => onExecuteCommand('Открой Telegram')}
-          className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all"
-        >
-          «Открыть Telegram»
-        </button>
-        <button
-          onClick={() => onExecuteCommand('Посмотри какие окна сейчас открыты')}
-          className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all"
-        >
-          «Посмотреть открытые окна»
-        </button>
+      {/* Bottom Right: Quick Commands Panel */}
+      <div className="absolute bottom-12 right-12 flex flex-col items-end pointer-events-auto" style={{ maxHeight: 'calc(100vh - 12rem)' }}>
+        <div className="text-[9px] opacity-50 mb-1.5 font-mono uppercase tracking-widest">⚡ БЫСТРЫЕ КОМАНДЫ</div>
+        
+        <div className="flex flex-col items-end space-y-1 overflow-y-auto pr-0.5" style={{ maxHeight: '420px' }}>
+          {/* Chrome Commands */}
+          <div className="text-[8px] text-[#00d4ff]/50 font-mono uppercase tracking-widest mb-0.5 border-b border-[#00d4ff]/15 pb-0.5 w-full text-right">
+            🌐 Chrome
+          </div>
+          <button
+            onClick={() => onExecuteCommand('Открой Chrome и перейди на сайт youtube.com')}
+            className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all text-right w-full"
+          >
+            Открыть YouTube
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Chrome и перейди на сайт github.com')}
+            className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all text-right w-full"
+          >
+            Открыть GitHub
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Chrome и перейди на сайт google.com')}
+            className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all text-right w-full"
+          >
+            Открыть Google
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Chrome и найди в Google информацию про искусственный интеллект')}
+            className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all text-right w-full"
+          >
+            Поиск: ИИ в Google
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Chrome и найди на YouTube видео про программирование на Python')}
+            className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all text-right w-full"
+          >
+            YouTube: поиск Python
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Chrome и перейди на сайт chat.openai.com')}
+            className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all text-right w-full"
+          >
+            Открыть ChatGPT
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Chrome, зайди на сайт погоды weather.com и посмотри прогноз')}
+            className="text-[11px] px-2.5 py-1 border border-[#00d4ff]/30 bg-[#00d4ff]/5 hover:bg-[#00d4ff]/20 text-[#00d4ff] rounded transition-all text-right w-full"
+          >
+            Погода на сегодня
+          </button>
+
+          {/* Telegram Commands */}
+          <div className="text-[8px] text-[#a78bfa]/60 font-mono uppercase tracking-widest mt-1 mb-0.5 border-b border-[#a78bfa]/15 pb-0.5 w-full text-right">
+            ✈️ Telegram
+          </div>
+          <button
+            onClick={() => onExecuteCommand('Открой Telegram и напиши в избранном (Saved Messages) сообщение: "Тестовое сообщение от JARVIS"')}
+            className="text-[11px] px-2.5 py-1 border border-[#a78bfa]/30 bg-[#a78bfa]/5 hover:bg-[#a78bfa]/20 text-[#a78bfa] rounded transition-all text-right w-full"
+          >
+            Написать в Избранное
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Telegram, найди чат с контактом "Мама" и отправь сообщение: "Привет! Как дела?"')}
+            className="text-[11px] px-2.5 py-1 border border-[#a78bfa]/30 bg-[#a78bfa]/5 hover:bg-[#a78bfa]/20 text-[#a78bfa] rounded transition-all text-right w-full"
+          >
+            Написать «Маме»
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Telegram, найди чат с другом "Алексей" и напиши сообщение: "Привет, ты сейчас свободен?"')}
+            className="text-[11px] px-2.5 py-1 border border-[#a78bfa]/30 bg-[#a78bfa]/5 hover:bg-[#a78bfa]/20 text-[#a78bfa] rounded transition-all text-right w-full"
+          >
+            Написать «Алексей»
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Telegram и проверь новые сообщения')}
+            className="text-[11px] px-2.5 py-1 border border-[#a78bfa]/30 bg-[#a78bfa]/5 hover:bg-[#a78bfa]/20 text-[#a78bfa] rounded transition-all text-right w-full"
+          >
+            Проверить сообщения
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Открой Telegram и перейди в группу "Работа"')}
+            className="text-[11px] px-2.5 py-1 border border-[#a78bfa]/30 bg-[#a78bfa]/5 hover:bg-[#a78bfa]/20 text-[#a78bfa] rounded transition-all text-right w-full"
+          >
+            Открыть группу «Работа»
+          </button>
+
+          {/* System Commands */}
+          <div className="text-[8px] text-emerald-400/50 font-mono uppercase tracking-widest mt-1 mb-0.5 border-b border-emerald-400/15 pb-0.5 w-full text-right">
+            🖥️ Система
+          </div>
+          <button
+            onClick={() => onExecuteCommand('Посмотри какие окна сейчас открыты')}
+            className="text-[11px] px-2.5 py-1 border border-emerald-400/30 bg-emerald-400/5 hover:bg-emerald-400/20 text-emerald-400 rounded transition-all text-right w-full"
+          >
+            Список окон
+          </button>
+          <button
+            onClick={() => onExecuteCommand('Сделай скриншот экрана и опиши что видишь')}
+            className="text-[11px] px-2.5 py-1 border border-emerald-400/30 bg-emerald-400/5 hover:bg-emerald-400/20 text-emerald-400 rounded transition-all text-right w-full"
+          >
+            Скриншот + анализ
+          </button>
+        </div>
       </div>
 
       {/* Bottom Left: Keyboard Shortcuts */}

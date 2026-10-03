@@ -80,20 +80,24 @@ $Bitmap.Dispose()
         };
       }
 
+      // After the null guard above, imageBuffer is guaranteed non-null
+      const safeBuffer = imageBuffer!;
+
       // Resize if requested
+      let finalBuffer: Buffer = safeBuffer;
       if (params.resizeWidth && params.resizeWidth > 0) {
-        imageBuffer = await sharp(imageBuffer)
+        finalBuffer = await sharp(safeBuffer)
           .resize({ width: params.resizeWidth, withoutEnlargement: true })
           .png()
           .toBuffer();
       }
 
-      const base64 = imageBuffer.toString('base64');
+      const base64 = finalBuffer.toString('base64');
       const dataUri = `data:image/png;base64,${base64}`;
 
       if (params.format === 'file') {
         const savedPath = path.join(os.tmpdir(), `jarvis_screen_latest.png`);
-        await fs.promises.writeFile(savedPath, imageBuffer);
+        await fs.promises.writeFile(savedPath, finalBuffer);
         return {
           success: true,
           data: { filePath: savedPath },
@@ -106,7 +110,7 @@ $Bitmap.Dispose()
         success: true,
         data: {
           width: params.resizeWidth || 'native',
-          sizeBytes: imageBuffer.length,
+          sizeBytes: finalBuffer.length,
         },
         screenshot: dataUri,
         message: 'Screenshot captured successfully.',

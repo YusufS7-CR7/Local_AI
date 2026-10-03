@@ -72,21 +72,53 @@ export class TaskPlanner {
   }
 
   private extractTelegramMessage(prompt: string): string {
-    const messageMatch = prompt.match(/(?:отправь|напиши|передай|сообщение|текст)\s+(?:мне\s+)?(?:в\s+избранное\s+)?(.+)$/i);
-    const raw = messageMatch?.[1]?.replace(/^(?:сообщение|текст)\s+/i, '').trim() || prompt;
-    return cleanSearchQuery(raw);
+    // For Saved Messages: extract everything after the trigger keywords
+    const match = prompt.match(
+      /(?:отправь|напиши|передай|скажи)\s+(?:в\s+)?избранно(?:е|e\.)?\s+(.+)$/i
+    );
+    return match?.[1]?.trim() || prompt.trim();
   }
 
   private extractTelegramChatAndMessage(prompt: string): { chat: string; message: string } | null {
-    const match = prompt.match(/(?:чат|пользовател[ья]|контакт)\s+(.+?)\s+(?:и\s+)?(?:напиши|отправь|передай)\s+(?:ему|ей)?\s*(.+)$/i);
-    if (match?.[1] && match[2]) {
-      return { chat: match[1].trim(), message: match[2].trim() };
+    // Pattern 1: "напиши <Имя> <текст>" or "отправь <Имя> <текст>"
+    // Examples: "напиши маме привет", "отправь Пете сообщение я занят"
+    const simpleMatch = prompt.match(
+      /^.*?(?:напиши|отправь|передай|скажи)\s+([A-ZА-Я][a-zа-я]{1,20})(?:\s+(?:сообщение|(?:что|:|)\s*))?\s+(.+)$/i
+    );
+    if (simpleMatch?.[1] && simpleMatch[2]) {
+      const chat = simpleMatch[1].trim();
+      const message = simpleMatch[2].trim();
+      // Sanity: message must be at least 2 chars and not a stop-word
+      if (message.length >= 2 && !/^(?:и|в|на|или|с|к)$/i.test(message)) {
+        return { chat, message };
+      }
     }
 
-    const fallback = prompt.match(/(?:найди|открой)\s+(.+?)\s+(?:и\s+)?(?:напиши|отправь)\s+(.+)$/i);
-    return fallback?.[1] && fallback[2]
-      ? { chat: fallback[1].trim(), message: fallback[2].trim() }
-      : null;
+    // Pattern 2: "чат / пользователь / контакт <Имя> и напиши <текст>"
+    const contactMatch = prompt.match(
+      /(?:чат|(?:пользовател[\u044cь])|(?:контакт))\s+(.+?)\s+(?:и\s+)?(?:напиши|отправь|передай)\s+(?:ему|ей)?\s*(.+)$/i
+    );
+    if (contactMatch?.[1] && contactMatch[2]) {
+      return { chat: contactMatch[1].trim(), message: contactMatch[2].trim() };
+    }
+
+    // Pattern 3: "найди/открой <Имя> и напиши <текст>"
+    const findAndWrite = prompt.match(
+      /(?:найди|открой)\s+(.+?)\s+(?:и\s+)?(?:напиши|отправь)\s+(.+)$/i
+    );
+    if (findAndWrite?.[1] && findAndWrite[2]) {
+      return { chat: findAndWrite[1].trim(), message: findAndWrite[2].trim() };
+    }
+
+    // Pattern 4: "... сообщение: <текст>"
+    const withColon = prompt.match(
+      /([A-ZА-Я][a-zа-я]+).*сообщение\s*[:"]\s*(.+)/i
+    );
+    if (withColon?.[1] && withColon[2]) {
+      return { chat: withColon[1].trim(), message: withColon[2].trim() };
+    }
+
+    return null;
   }
 
   /**
@@ -118,10 +150,10 @@ CRITICAL UNDERSTANDING & QUERY CLEANING RULES:
    - If user asks to search YouTube videos, use browser.open with "https://www.youtube.com/results?search_query=<cleaned_query>".
 
 3. TELEGRAM DIRECTIVES:
-   - To send a message or note into Telegram Saved Messages ("Избранное"):
-     Use computer.telegram_send_message with {"chat": "Избранное", "message": "<cleaned_text>"}.
-   - To send a message to a specific contact or chat:
-     Use computer.telegram_send_message with {"chat": "<chat_name>", "message": "<cleaned_message>"}.
+   - The computer.telegram_send_message tool works VISUALLY — it opens Telegram, finds the search bar on screen, types the chat name, clicks the result, and sends the message.
+   - To send a message to ANY contact or group: use computer.telegram_send_message with {"chat": "<exact contact or group name>", "message": "<text to send>"}.
+   - To send to Saved Messages (Избранное): use {"chat": "Избранное", "message": "<text>"}.
+   - Extract the chat name and message text EXACTLY as the user specified. Do NOT modify or clean the message text — keep it as-is.
 
 4. GENERAL CONVERSATION OR QUESTIONS:
    - If user asks a general question (not an OS action), return empty initialToolCalls: [] and plan: ["Ответить пользователю"].

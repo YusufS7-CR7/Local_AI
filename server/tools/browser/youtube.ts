@@ -35,7 +35,7 @@ export const youtubePlayPlaylistTool: ITool = {
 
       return {
         success: true,
-        data: { query, playlistTitle: playlistTitle.trim(), url: page.url() },
+        data: { query: rawQuery, playlistTitle: playlistTitle.trim(), url: page.url() },
         message: `На YouTube найден плейлист "${playlistTitle.trim()}" и запущено воспроизведение.`,
       };
     } catch (err: any) {

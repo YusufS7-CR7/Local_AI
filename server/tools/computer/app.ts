@@ -4,7 +4,6 @@ import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { runPowerShell } from '../../utils/powershell.js';
 import { cleanSearchQuery } from '../../utils/queryCleaner.js';
 
 const execAsync = promisify(exec);

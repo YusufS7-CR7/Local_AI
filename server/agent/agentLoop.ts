@@ -76,6 +76,18 @@ export class AgentLoop {
       let finalSummary = '';
 
       // ── Step 2: ReAct Execution Loop ──
+      // Tools that are critical and must ALWAYS be verified on screen
+      const ALWAYS_VERIFY_TOOLS = new Set([
+        'computer.open_app',
+        'computer.telegram_send_message',
+        'browser.open',
+        'browser.navigate',
+        'browser.new_tab',
+        'computer.switch_window',
+        'filesystem.write',
+        'filesystem.delete',
+      ]);
+
       while (currentStepIndex < this.maxSteps && !isTaskFinished) {
         currentStepIndex++;
 
@@ -87,7 +99,18 @@ export class AgentLoop {
         }
 
         // If LLM decided no further tools are needed, we are done
-        if (!nextToolCall || nextToolCall.name === 'finish' || nextToolCall.name === 'complete') {
+        if (!nextToolCall) {
+          // LLM returned nothing — likely an API error or context overflow
+          console.warn('[JARVIS Agent] decideNextStep returned undefined — LLM could not decide next action.');
+          task.errorDiagnostics = {
+            errorCode: 'ERR_LLM_DECISION_FAILED',
+            reason: 'AI не смог определить следующее действие (возможна перегрузка API или недостаточность контекста).',
+            suggestedFix: 'Попробуйте переформулировать команду или проверьте соединение с AI провайдером.',
+          };
+          break;
+        }
+
+        if (nextToolCall.name === 'finish' || nextToolCall.name === 'complete') {
           isTaskFinished = true;
           break;
         }
@@ -148,16 +171,23 @@ export class AgentLoop {
 
         console.log(`[JARVIS Act] Step ${currentStepIndex}: ${tool.name}(${JSON.stringify(step.parameters)})`);
         const result = await toolRegistry.execute(tool.name, step.parameters || {});
-        const shouldVerify = toolQueue.length === 0;
+        // Verify immediately for critical tools OR when queue is empty (final step)
+        const isCriticalTool = ALWAYS_VERIFY_TOOLS.has(tool.name);
+        const isLastStep = toolQueue.length === 0;
+        const shouldVerify = isCriticalTool || isLastStep;
         const verification = result.success && shouldVerify
           ? await this.verifyAction(task.prompt, tool.name, step.parameters || {}, result)
           : result.success
-            ? { verified: true, observation: 'Промежуточный шаг выполнен; итог будет проверен после завершения последовательности.' }
+            ? { verified: true, observation: 'Промежуточный вспомогательный шаг выполнен.' }
           : { verified: false, observation: result.error || 'Инструмент завершился с ошибкой.' };
 
         step.result = result.data;
         step.observation = this.getUserObservation(tool.name, result);
-        
+        // Enrich observation with what Vision AI actually saw on screen
+        if (verification.observation && verification.observation !== 'Промежуточный вспомогательный шаг выполнен.') {
+          step.observation += ` [Экран: ${verification.observation}]`;
+        }
+
         if (!result.success || !verification.verified) {
           const errorCode = !result.success
             ? (tool.name.includes('telegram') ? 'ERR_TELEGRAM_ACTION_FAILED' : tool.name.includes('app') ? 'ERR_APP_FOCUS_FAILED' : 'ERR_TOOL_EXECUTION_FAILED')
@@ -178,12 +208,16 @@ export class AgentLoop {
           task.errorDiagnostics = errorDiag;
 
           if (!verification.verified && result.success) {
-            step.observation += ` [Проверка: ${verification.observation}]`;
             const retryKey = `${tool.name}:${JSON.stringify(step.parameters || {})}`;
             const retries = verificationRetries.get(retryKey) || 0;
             if (retries < 1) {
+              console.log(`[JARVIS Verify] Verification failed for ${tool.name}, scheduling retry in 1500ms...`);
               verificationRetries.set(retryKey, retries + 1);
+              // Extra delay before retry so OS has more time to render
+              await new Promise(r => setTimeout(r, 1500));
               toolQueue.unshift(nextToolCall);
+            } else {
+              console.warn(`[JARVIS Verify] Retry limit reached for ${tool.name}. Marking as failed.`);
             }
           }
         }
@@ -399,6 +433,7 @@ Return STRICT JSON ONLY:
     parameters: Record<string, any>,
     result: { message?: string; data?: any; success?: boolean; error?: string }
   ): Promise<{ verified: boolean; observation: string }> {
+    // Screenshot / screen-read tools are self-verifying
     if (toolName === 'computer.screenshot' || toolName === 'computer.read_screen') {
       return { verified: true, observation: 'Проверка экрана уже выполнена.' };
     }
@@ -410,37 +445,70 @@ Return STRICT JSON ONLY:
       };
     }
 
-    let screenCaptured = false;
     try {
       // Allow window rendering animation to settle before taking screenshot
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 700));
 
       const screenResult = await screenshotTool.execute({ resizeWidth: 1024 });
       if (!screenResult.success || !screenResult.screenshot) {
         return { verified: false, observation: 'Не удалось получить проверочный снимок экрана.' };
       }
-      screenCaptured = true;
 
       const imageBase64 = screenResult.screenshot.replace(/^data:image\/\w+;base64,/, '');
+
+      // Build a precise, tool-specific verification question for Vision AI
+      let verificationQuestion = '';
+      if (toolName === 'computer.telegram_send_message') {
+        const chat = parameters.chat || '?';
+        const msg = (parameters.message || '').slice(0, 60);
+        verificationQuestion = `Проверь: открыт ли в Telegram чат «${chat}»? Видно ли в нём только что отправленное сообщение «${msg}...»? Verified=true ТОЛЬКО если чат открыт И сообщение отправлено (видно в ленте сообщений).`;
+      } else if (toolName === 'computer.open_app' || toolName === 'browser.open' || toolName === 'browser.navigate') {
+        const app = parameters.appName || parameters.url || '?';
+        verificationQuestion = `Проверь: видно ли на экране окно приложения «${app}» или открытый сайт? Это должно быть активное окно на переднем плане, а не просто кнопка в панели задач. Verified=true ТОЛЬКО если окно реально открыто и занимает экран.`;
+      } else if (toolName === 'computer.switch_window') {
+        verificationQuestion = `Проверь: переключилось ли активное окно на «${parameters.query || '?'}»? Verified=true ТОЛЬКО если это окно сейчас на переднем плане.`;
+      } else if (toolName === 'filesystem.write') {
+        verificationQuestion = `Проверь: был ли файл успешно записан? Verified=true если инструмент не сообщил об ошибке и результат: «${result.message}».`;
+      } else {
+        verificationQuestion = `Проверь, выполнено ли действие ${toolName} для цели «${prompt}». Verified=true ТОЛЬКО если результат действия реально виден на экране.`;
+      }
+
       const response = await brain.generateWithVision({
-        prompt: `Посмотри на снимок экрана Windows.\nЦель пользователя: "${prompt}"\nВыполненное действие: ${toolName}(${JSON.stringify(parameters)})\nРезультат инструмента: "${result.message || ''}"\n\nВнимательно проверь, видно ли на экране открытое окно нужного приложения (например Telegram, Chrome, Блокнот и т.д.), открыт ли нужный чат/сайт, виден ли результат.\nОтветь строго JSON: {"verified": true или false, "observation": "точное описание на русском: что сейчас открыто на экране и подтверждено ли действие"}. Считай verified=true ТОЛЬКО если действие реально видно на экране.`,
+        prompt: `Ты — система автоматической верификации компьютерного агента JARVIS. Смотри на снимок экрана Windows.
+
+Цель задачи: "${prompt}"
+Выполненное действие: ${toolName}(${JSON.stringify(parameters)})
+Отчёт инструмента: "${result.message || ''}"
+
+${verificationQuestion}
+
+ОТВЕТЬ СТРОГО JSON без лишних слов:
+{"verified": true|false, "observation": "точное описание на русском что сейчас видно на экране"}`,
         images: [imageBase64],
       });
 
       const cleanJson = response.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-      const parsed = JSON.parse(cleanJson);
-      return {
-        verified: parsed.verified === true,
-        observation: parsed.observation || (parsed.verified === true ? 'Результат успешно подтверждён на экране.' : 'Окно или результат действия не обнаружены на экране.'),
-      };
-    } catch (err: any) {
-      if (screenCaptured) {
+
+      // Strict JSON parse — do NOT silently assume verified=true on failure
+      let parsed: any;
+      try {
+        parsed = JSON.parse(cleanJson);
+      } catch (parseErr: any) {
+        console.warn(`[Verify] JSON parse failed for tool ${toolName}:`, parseErr.message, '| Raw:', cleanJson.slice(0, 200));
         return {
-          verified: true,
-          observation: `Снимок экрана зафиксирован (${result.message || 'Действие выполнено'}).`,
+          verified: false,
+          observation: `Не удалось разобрать ответ Vision AI. Считаем шаг НЕ подтверждённым. Raw: ${cleanJson.slice(0, 120)}`,
         };
       }
-      return { verified: false, observation: `Не удалось проверить экран: ${err.message || String(err)}` };
+
+      return {
+        verified: parsed.verified === true,
+        observation: parsed.observation || (parsed.verified === true
+          ? 'Результат успешно подтверждён на экране.'
+          : 'Окно или результат действия не обнаружены на экране.'),
+      };
+    } catch (err: any) {
+      return { verified: false, observation: `Ошибка верификации: ${err.message || String(err)}` };
     }
   }
 
