@@ -109,7 +109,13 @@ export const visualLocateAndClickTool: ITool = {
 
       // 4. Move and Click
       await mouseMoveTool.execute({ x: finalX, y: finalY });
-      await mouseClickTool.execute({ x: finalX, y: finalY, button: btn });
+      const clickRes = await mouseClickTool.execute({ x: finalX, y: finalY, button: btn });
+      if (!clickRes.success) {
+        return {
+          success: false,
+          error: `Не удалось нажать на найденный элемент: ${clickRes.error}`,
+        };
+      }
 
       return {
         success: true,

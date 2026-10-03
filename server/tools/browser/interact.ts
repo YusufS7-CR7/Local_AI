@@ -24,11 +24,48 @@ export const browserClickTool: ITool = {
     try {
       const page = await browserSession.getActivePage();
       const timeout = params.timeoutMs || 8000;
-      await page.click(params.selector, { timeout });
-      return {
-        success: true,
-        message: `Clicked element "${params.selector}" successfully.`,
-      };
+      
+      try {
+        await page.click(params.selector, { timeout });
+        return {
+          success: true,
+          message: `Clicked element "${params.selector}" successfully.`,
+        };
+      } catch (clickErr: any) {
+        // Smart fallback for YouTube "Play all" / "Воспроизвести все"
+        if (/play all/i.test(params.selector)) {
+          const fallbacks = [
+            'button[aria-label*="Воспроизвести все" i]',
+            'a[aria-label*="Воспроизвести все" i]',
+            'button:has-text("Воспроизвести все")',
+            'a:has-text("Воспроизвести все")',
+            'ytd-playlist-header-renderer a[href*="watch"]',
+            'a[href*="/watch?v="][href*="list="]',
+            'ytd-playlist-video-renderer a#thumbnail',
+            'ytd-playlist-video-renderer a#video-title',
+          ];
+          for (const fb of fallbacks) {
+            try {
+              const el = page.locator(fb).first();
+              if (await el.isVisible({ timeout: 1500 })) {
+                await el.click({ timeout: 3000 });
+                return { success: true, message: `Clicked YouTube playlist playback element via fallback "${fb}".` };
+              }
+            } catch {}
+          }
+        }
+
+        // Try with force: true as a second attempt
+        try {
+          await page.locator(params.selector).first().click({ timeout: 2000, force: true });
+          return {
+            success: true,
+            message: `Clicked element "${params.selector}" (forced) successfully.`,
+          };
+        } catch {}
+
+        throw clickErr;
+      }
     } catch (err: any) {
       return { success: false, error: `Failed to click "${params.selector}": ${err.message}` };
     }

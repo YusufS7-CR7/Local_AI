@@ -1,8 +1,5 @@
 import { ITool, ToolResult } from '../types.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { runPowerShell } from '../../utils/powershell.js';
 
 /**
  * Windows User32 Mouse Automation Helper
@@ -60,11 +57,12 @@ public class WinMouse {
         mouse_event(MOUSEEVENTF_WHEEL, 0, 0, (uint)amount, 0);
     }
 }
-"@
+"@ -ErrorAction SilentlyContinue
+
 ${actionCode}
 `;
-  const { stdout } = await execAsync(`powershell -ExecutionPolicy Bypass -Command "${script.replace(/\r?\n/g, ' ')}"`);
-  return stdout;
+  const result = await runPowerShell(script);
+  return result.stdout;
 }
 
 export const mouseMoveTool: ITool = {
@@ -112,6 +110,7 @@ export const mouseClickTool: ITool = {
         await runMouseAction(`[WinMouse]::Click(${x}, ${y}, "${btn}")`);
       } else {
         await runMouseAction(`
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
 $pos = [System.Windows.Forms.Cursor]::Position
 [WinMouse]::Click($pos.X, $pos.Y, "${btn}")
 `);
@@ -149,9 +148,9 @@ export const mouseScrollTool: ITool = {
 
     try {
       await runMouseAction(`[WinMouse]::Scroll(${wheelUnits})`);
-      return { success: true, message: `Scrolled ${params.direction} by ${steps} units.` };
+      return { success: true, message: `Scrolled ${params.direction} by ${steps} steps` };
     } catch (err: any) {
-      return { success: false, error: `Scroll failed: ${err.message}` };
+      return { success: false, error: `Failed to scroll: ${err.message}` };
     }
   },
 };
