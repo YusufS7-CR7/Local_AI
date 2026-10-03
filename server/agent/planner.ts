@@ -79,6 +79,43 @@ export class TaskPlanner {
     return match?.[1]?.trim() || prompt.trim();
   }
 
+  private normalizeRussianContactName(name: string): string {
+    const n = name.trim();
+    const lower = n.toLowerCase();
+    const map: Record<string, string> = {
+      'маме': 'Мама',
+      'маму': 'Мама',
+      'мама': 'Мама',
+      'папе': 'Папа',
+      'папу': 'Папа',
+      'папа': 'Папа',
+      'жене': 'Жена',
+      'жену': 'Жена',
+      'жена': 'Жена',
+      'мужу': 'Муж',
+      'муж': 'Муж',
+      'брату': 'Брат',
+      'брат': 'Брат',
+      'сестре': 'Сестра',
+      'сестру': 'Сестра',
+      'сестра': 'Сестра',
+      'сыну': 'Сын',
+      'дочке': 'Дочка',
+      'дочери': 'Дочь',
+      'бабушке': 'Бабушка',
+      'дедушке': 'Дедушка',
+      'другу': 'Друг',
+    };
+    if (map[lower]) return map[lower];
+    if (lower.endsWith('е')) {
+      if (/[жшчщ]е$/i.test(lower)) return n.slice(0, -1) + (n.endsWith('Е') ? 'А' : 'а');
+      return n.slice(0, -1) + (n.endsWith('Е') ? 'Я' : 'я');
+    }
+    if (lower.endsWith('у') && /[бвгджзклмнпрстфхцчшщ]у$/i.test(lower)) return n.slice(0, -1);
+    if (lower.endsWith('ю')) return n.slice(0, -1) + (n.endsWith('Ю') ? 'Ь' : 'ь');
+    return n;
+  }
+
   private extractTelegramChatAndMessage(prompt: string): { chat: string; message: string } | null {
     // Pattern 1: "напиши <Имя> <текст>" or "отправь <Имя> <текст>"
     // Examples: "напиши маме привет", "отправь Пете сообщение я занят"
@@ -86,11 +123,11 @@ export class TaskPlanner {
       /^.*?(?:напиши|отправь|передай|скажи)\s+([A-ZА-Я][a-zа-я]{1,20})(?:\s+(?:сообщение|(?:что|:|)\s*))?\s+(.+)$/i
     );
     if (simpleMatch?.[1] && simpleMatch[2]) {
-      const chat = simpleMatch[1].trim();
+      const rawChat = simpleMatch[1].trim();
       const message = simpleMatch[2].trim();
       // Sanity: message must be at least 2 chars and not a stop-word
       if (message.length >= 2 && !/^(?:и|в|на|или|с|к)$/i.test(message)) {
-        return { chat, message };
+        return { chat: this.normalizeRussianContactName(rawChat), message };
       }
     }
 
@@ -99,7 +136,7 @@ export class TaskPlanner {
       /(?:чат|(?:пользовател[\u044cь])|(?:контакт))\s+(.+?)\s+(?:и\s+)?(?:напиши|отправь|передай)\s+(?:ему|ей)?\s*(.+)$/i
     );
     if (contactMatch?.[1] && contactMatch[2]) {
-      return { chat: contactMatch[1].trim(), message: contactMatch[2].trim() };
+      return { chat: this.normalizeRussianContactName(contactMatch[1].trim()), message: contactMatch[2].trim() };
     }
 
     // Pattern 3: "найди/открой <Имя> и напиши <текст>"
@@ -107,7 +144,7 @@ export class TaskPlanner {
       /(?:найди|открой)\s+(.+?)\s+(?:и\s+)?(?:напиши|отправь)\s+(.+)$/i
     );
     if (findAndWrite?.[1] && findAndWrite[2]) {
-      return { chat: findAndWrite[1].trim(), message: findAndWrite[2].trim() };
+      return { chat: this.normalizeRussianContactName(findAndWrite[1].trim()), message: findAndWrite[2].trim() };
     }
 
     // Pattern 4: "... сообщение: <текст>"
@@ -115,7 +152,7 @@ export class TaskPlanner {
       /([A-ZА-Я][a-zа-я]+).*сообщение\s*[:"]\s*(.+)/i
     );
     if (withColon?.[1] && withColon[2]) {
-      return { chat: withColon[1].trim(), message: withColon[2].trim() };
+      return { chat: this.normalizeRussianContactName(withColon[1].trim()), message: withColon[2].trim() };
     }
 
     return null;
@@ -150,10 +187,10 @@ CRITICAL UNDERSTANDING & QUERY CLEANING RULES:
    - If user asks to search YouTube videos, use browser.open with "https://www.youtube.com/results?search_query=<cleaned_query>".
 
 3. TELEGRAM DIRECTIVES:
-   - The computer.telegram_send_message tool works VISUALLY — it opens Telegram, finds the search bar on screen, types the chat name, clicks the result, and sends the message.
-   - To send a message to ANY contact or group: use computer.telegram_send_message with {"chat": "<exact contact or group name>", "message": "<text to send>"}.
+   - The computer.telegram_send_message tool works VISUALLY — it opens Telegram, finds the search bar on screen, types the chat name, clicks the exact matching chat, and sends the message.
+   - To send a message to ANY contact or group: use computer.telegram_send_message with {"chat": "<contact or group name in nominative dictionary form, e.g. 'Мама' not 'маме', 'Папа' not 'папе', 'Ваня' not 'Ване'>", "message": "<text to send>"}.
    - To send to Saved Messages (Избранное): use {"chat": "Избранное", "message": "<text>"}.
-   - Extract the chat name and message text EXACTLY as the user specified. Do NOT modify or clean the message text — keep it as-is.
+   - Extract the chat name in nominative form and keep message text EXACTLY as the user specified. Do NOT modify the message text.
 
 4. GENERAL CONVERSATION OR QUESTIONS:
    - If user asks a general question (not an OS action), return empty initialToolCalls: [] and plan: ["Ответить пользователю"].

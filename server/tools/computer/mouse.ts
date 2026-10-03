@@ -14,6 +14,9 @@ using System;
 using System.Runtime.InteropServices;
 public class WinMouse {
     [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
+
+    [DllImport("user32.dll")]
     public static extern bool SetCursorPos(int X, int Y);
 
     [DllImport("user32.dll")]
@@ -27,7 +30,13 @@ public class WinMouse {
     public const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
     public const uint MOUSEEVENTF_WHEEL = 0x0800;
 
+    public static void Move(int x, int y) {
+        SetProcessDPIAware();
+        SetCursorPos(x, y);
+    }
+
     public static void Click(int x, int y, string button) {
+        SetProcessDPIAware();
         SetCursorPos(x, y);
         System.Threading.Thread.Sleep(50);
         if (button == "left") {
@@ -69,7 +78,7 @@ export const mouseMoveTool: ITool = {
   dangerLevel: 'safe',
   async execute(params: { x: number; y: number }): Promise<ToolResult> {
     try {
-      await runMouseAction(`[WinMouse]::SetCursorPos(${Math.round(params.x)}, ${Math.round(params.y)})`);
+      await runMouseAction(`[WinMouse]::Move(${Math.round(params.x)}, ${Math.round(params.y)})`);
       return { success: true, message: `Mouse moved to (${params.x}, ${params.y})` };
     } catch (err: any) {
       return { success: false, error: `Failed to move mouse: ${err.message}` };

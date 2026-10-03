@@ -2,15 +2,13 @@ import { ITool, ToolResult } from '../types.js';
 import { screenshotTool } from './screenshot.js';
 import { mouseClickTool, mouseMoveTool } from './mouse.js';
 import { brain } from '../../router/brain.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { runPowerShell } from '../../utils/powershell.js';
+import sharp from 'sharp';
 
 export const visualLocateAndClickTool: ITool = {
   name: 'computer.visual_click',
   category: 'computer',
-  description: 'Visually scans the screen in real-time using Vision AI, locates the exact button, icon, text field, or UI element by its description, and clicks on it.',
+  description: 'Visually scans the screen in real-time using Vision AI, locates the exact button, icon, text field, or UI element by its description, and clicks on it with pixel accuracy.',
   parameters: [
     {
       name: 'elementDescription',
@@ -33,27 +31,38 @@ export const visualLocateAndClickTool: ITool = {
 
     try {
       // 1. Get primary screen resolution from Windows
-      const { stdout: resOut } = await execAsync(`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; Write-Output ('{0}x{1}' -f $s.Width, $s.Height)"`);
+      const { stdout: resOut } = await runPowerShell(
+        `Add-Type -AssemblyName System.Windows.Forms; $s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; Write-Output ($s.Width.ToString() + 'x' + $s.Height.ToString())`
+      );
       const [screenWidth, screenHeight] = (resOut.trim() || '1920x1080').split('x').map(n => parseInt(n) || 1080);
 
-      // 2. Capture desktop frame directly in RAM
-      const screenRes = await screenshotTool.execute({ resizeWidth: 1024 });
+      // 2. Capture native desktop frame
+      const screenRes = await screenshotTool.execute({});
       if (!screenRes.success || !screenRes.screenshot) {
         return { success: false, error: 'Не удалось захватить кадр экрана для визуального поиска.' };
       }
 
       const imageBase64 = screenRes.screenshot.replace(/^data:image\/\w+;base64,/, '');
+      const buf = Buffer.from(imageBase64, 'base64');
+      const meta = await sharp(buf).metadata();
+      const imgW = meta.width || screenWidth;
+      const imgH = meta.height || screenHeight;
 
-      // 3. Vision Grounding Model: identify coordinates normalized to 1000x1000 grid or pixel space
-      const prompt = `Ты — система компьютерного зрения JARVIS.
-На этом скриншоте экрана Windows (разрешение ${screenWidth}x${screenHeight}) найди элемент: "${description}".
+      const scaleX = screenWidth / imgW;
+      const scaleY = screenHeight / imgH;
 
-Определи точный центр этого элемента (x и y в пикселях от верхнего левого угла экрана [0..${screenWidth}], [0..${screenHeight}]).
+      // 3. Vision Grounding Model: identify coordinates with bounding box support
+      const prompt = `Ты — высокоточная система визуального позиционирования JARVIS.
+На этом скриншоте экрана Windows (разрешение изображения: ${imgW}x${imgH} пикселей, реальный экран: ${screenWidth}x${screenHeight}) найди элемент: "${description}".
+
+Определи точный центр этого элемента в пикселях скриншота (x: 0..${imgW}, y: 0..${imgH}).
+Если это строка или список, выбери именно указанный элемент, а не первый попавшийся сверху.
 Ответь строго JSON (без Markdown и без кавычек вокруг):
 {
-  "found": true или false,
-  "x": число (пиксель по горизонтали),
-  "y": число (пиксель по вертикали),
+  "found": true,
+  "x": число_x_в_пикселях,
+  "y": число_y_в_пикселях,
+  "box": { "ymin": число, "xmin": число, "ymax": число, "xmax": число },
   "elementName": "описание найденного элемента",
   "confidence": число от 0.0 до 1.0,
   "explanation": "почему выбран этот элемент / где он расположен"
@@ -67,37 +76,56 @@ export const visualLocateAndClickTool: ITool = {
       const cleanJson = response.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
       const parsed = JSON.parse(cleanJson);
 
-      if (!parsed.found || typeof parsed.x !== 'number' || typeof parsed.y !== 'number') {
+      if (!parsed.found || (typeof parsed.x !== 'number' && !parsed.box)) {
         return {
           success: false,
           error: `Элемент «${description}» не найден на текущем экране: ${parsed.explanation || 'элемент отсутствует в видимой области'}.`,
         };
       }
 
-      // Clamp coordinates to screen bounds
-      const targetX = Math.max(0, Math.min(screenWidth, Math.round(parsed.x)));
-      const targetY = Math.max(0, Math.min(screenHeight, Math.round(parsed.y)));
+      let targetX = typeof parsed.x === 'number' ? parsed.x : 0;
+      let targetY = typeof parsed.y === 'number' ? parsed.y : 0;
+
+      if (parsed.box && typeof parsed.box.ymin === 'number' && typeof parsed.box.ymax === 'number') {
+        let bYmin = parsed.box.ymin;
+        let bYmax = parsed.box.ymax;
+        let bXmin = typeof parsed.box.xmin === 'number' ? parsed.box.xmin : targetX;
+        let bXmax = typeof parsed.box.xmax === 'number' ? parsed.box.xmax : targetX;
+
+        if (bYmax <= 1000 && imgH > 1000 && bYmin <= 1000) {
+          bYmin = (bYmin / 1000) * imgH;
+          bYmax = (bYmax / 1000) * imgH;
+          bXmin = (bXmin / 1000) * imgW;
+          bXmax = (bXmax / 1000) * imgW;
+        }
+
+        targetY = Math.round((bYmin + bYmax) / 2);
+        targetX = Math.round((bXmin + bXmax) / 2);
+      }
+
+      // Convert to real screen bounds
+      const finalX = Math.max(0, Math.min(screenWidth, Math.round(targetX * scaleX)));
+      const finalY = Math.max(0, Math.min(screenHeight, Math.round(targetY * scaleY)));
 
       // 4. Move and Click
-      await mouseMoveTool.execute({ x: targetX, y: targetY });
-      await mouseClickTool.execute({ x: targetX, y: targetY, button: btn });
+      await mouseMoveTool.execute({ x: finalX, y: finalY });
+      await mouseClickTool.execute({ x: finalX, y: finalY, button: btn });
 
       return {
         success: true,
         data: {
-          x: targetX,
-          y: targetY,
+          x: finalX,
+          y: finalY,
           element: parsed.elementName || description,
           confidence: parsed.confidence,
         },
-        message: `Элемент «${parsed.elementName || description}» найден на экране в точке (${targetX}, ${targetY}) и нажат (${btn} клик).`,
+        message: `Элемент «${parsed.elementName || description}» найден на экране в точке (${finalX}, ${finalY}) и нажат (${btn} клик).`,
       };
     } catch (err: any) {
       return {
         success: false,
-        error: `Ошибка визуального поиска и клика: ${err.message || String(err)}`,
+        error: `Ошибка визуального поиска: ${err.message || String(err)}`,
       };
     }
   },
 };
-
