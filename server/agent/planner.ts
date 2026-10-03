@@ -1,5 +1,6 @@
 import { toolRegistry } from '../tools/registry.js';
 import { brain } from '../router/brain.js';
+import { memoryStore } from '../memory/memoryStore.js';
 import {
   cleanSearchQuery,
   cleanYouTubeQuery,
@@ -165,9 +166,11 @@ export class TaskPlanner {
    */
   public async createPlan(prompt: string): Promise<PlanResult> {
     const toolsDoc = toolRegistry.getToolDocumentation();
+    const memoryContext = memoryStore.formatContext(prompt);
 
-    const systemPrompt = `You are JARVIS, an elite AI computer-use agent for Windows.
+    const systemPrompt = `You are JARVIS, an elite AI computer-use agent for Windows with persistent long-term memory.
 Your job is to analyze user directives and construct a precise, multi-step plan using the available tools.
+${memoryContext ? `\n=== LONG-TERM MEMORY & USER CONTEXT ===\n${memoryContext}\n======================================\n` : ''}
 
 CRITICAL UNDERSTANDING & QUERY CLEANING RULES:
 1. NEVER copy conversational filler, UI phrasing, or user command prefixes into search queries, URLs, or text inputs.
@@ -192,7 +195,17 @@ CRITICAL UNDERSTANDING & QUERY CLEANING RULES:
    - To send to Saved Messages (Избранное): use {"chat": "Избранное", "message": "<text>"}.
    - Extract the chat name in nominative form and keep message text EXACTLY as the user specified. Do NOT modify the message text.
 
-4. GENERAL CONVERSATION OR QUESTIONS:
+4. MEMORY & USER CONTEXT DIRECTIVES:
+   - If the user asks a question about themselves (e.g. "как меня зовут?", "какой мой любимый трек?", "кто я?") or asks what you remember:
+     Return empty initialToolCalls: [] and plan: ["Ответить пользователю из памяти"]. State the answer directly from the MEMORY section above in your thought.
+   - If user explicitly tells you to remember something ("запомни...", "сохрани в память..."):
+     Use tool memory.remember with {"key": "...", "value": "...", "category": "profile|preference|contact|task|general"}.
+   - If user asks what is in memory or asks to see memories:
+     Use tool memory.list with {}.
+   - If user asks for their favorite music/video ("включи мою любимую песню"):
+     Check the MEMORY section above and use that specific artist/track in browser.youtube_play_playlist!
+
+5. GENERAL CONVERSATION OR QUESTIONS:
    - If user asks a general question (not an OS action), return empty initialToolCalls: [] and plan: ["Ответить пользователю"].
 
 AVAILABLE TOOLS:
@@ -252,6 +265,44 @@ OUTPUT FORMAT: Return STRICT JSON ONLY (no markdown code fences):
 
     // ── 2. Secondary Engine: Robust Deterministic Rule-Based Fallback ──
     const lowerPrompt = prompt.toLowerCase();
+
+    // 0. Memory Triggers in Fallback
+    if (lowerPrompt.includes('запомни') || lowerPrompt.includes('сохрани в память')) {
+      const parts = prompt.replace(/^(?:джарвис|jarvis,?)?\s*(?:запомни|сохрани(?:\s+в\s+память)?)\s*[:,\s]+/i, '').trim();
+      const split = parts.split(/\s*[-—:]\s*|\s+(?:это|равно|равен)\s+/i);
+      const key = split[0]?.trim() || `note_${Date.now()}`;
+      const value = split.slice(1).join(' ').trim() || parts;
+      return {
+        thought: `Понял, сэр. Запоминаю: «${key}» = «${value}».`,
+        plan: [`Сохранить «${key}» в долговременную память`],
+        initialToolCalls: [
+          { name: 'memory.remember', parameters: { key, value, category: 'general' } },
+        ],
+      };
+    }
+
+    if (lowerPrompt.includes('что в памяти') || lowerPrompt.includes('покажи память') || lowerPrompt.includes('что ты помнишь')) {
+      return {
+        thought: 'Понял, сэр. Проверяю сохранённые факты в долговременной памяти.',
+        plan: ['Получить список воспоминаний из памяти'],
+        initialToolCalls: [
+          { name: 'memory.list', parameters: {} },
+        ],
+      };
+    }
+
+    if (lowerPrompt.includes('как меня зовут') || lowerPrompt.includes('кто я')) {
+      const recalled = memoryStore.recall('user_name', 1);
+      const name = recalled[0]?.value;
+      const thought = name
+        ? `Понял, сэр. Вас зовут ${name}.`
+        : 'К сожалению, сэр, в моей памяти пока не сохранено ваше имя. Вы можете сказать: «Запомни, меня зовут [ваше имя]».';
+      return {
+        thought,
+        plan: ['Ответить пользователю из памяти'],
+        initialToolCalls: [],
+      };
+    }
 
     // 1. YouTube Playlist
     const isYouTubePlaylistRequest =

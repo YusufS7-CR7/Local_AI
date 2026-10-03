@@ -30,7 +30,7 @@ export interface ToolExecutionContext {
 
 export interface ITool {
   name: string;
-  category: 'computer' | 'browser' | 'filesystem' | 'system';
+  category: 'computer' | 'browser' | 'filesystem' | 'system' | 'memory';
   description: string;
   parameters: ToolParameter[];
   dangerLevel: DangerLevel;

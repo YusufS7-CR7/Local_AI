@@ -22,6 +22,9 @@ import { filesystemSearchTool } from './filesystem/search.js';
 import { filesystemReadTool, filesystemListDirTool } from './filesystem/read.js';
 import { filesystemOpenTool, filesystemWriteTool, filesystemDeleteTool } from './filesystem/manage.js';
 
+// Memory Tools
+import { memoryRememberTool, memoryRecallTool, memoryListTool, memoryForgetTool } from './memory/index.js';
+
 export function initializeTools(): void {
   // Register Computer Tools
   toolRegistry.register(screenshotTool);
@@ -61,7 +64,13 @@ export function initializeTools(): void {
   toolRegistry.register(filesystemWriteTool);
   toolRegistry.register(filesystemDeleteTool);
 
-  console.log(`[ToolRegistry] Successfully initialized ${toolRegistry.getAll().length} tools across Computer, Browser, and Filesystem categories.`);
+  // Register Memory Tools
+  toolRegistry.register(memoryRememberTool);
+  toolRegistry.register(memoryRecallTool);
+  toolRegistry.register(memoryListTool);
+  toolRegistry.register(memoryForgetTool);
+
+  console.log(`[ToolRegistry] Successfully initialized ${toolRegistry.getAll().length} tools across Computer, Browser, Filesystem, and Memory categories.`);
 }
 
 export { toolRegistry };

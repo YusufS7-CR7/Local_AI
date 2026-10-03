@@ -4,6 +4,8 @@ import { toolRegistry } from '../tools/registry.js';
 import { safetyManager } from '../safety/permissions.js';
 import { brain } from '../router/brain.js';
 import { screenshotTool } from '../tools/computer/screenshot.js';
+import { memoryStore } from '../memory/memoryStore.js';
+import { memoryExtractor } from '../memory/extractor.js';
 
 export type EventListener = (event: AgentEvent) => void;
 
@@ -49,6 +51,13 @@ export class AgentLoop {
     console.log(`\n========================================`);
     console.log(`[JARVIS Agent] New Directive: "${prompt}" (ID: ${taskId})`);
     console.log(`========================================`);
+
+    // Immediate extraction of user profile/preferences facts
+    try {
+      memoryExtractor.extractImmediateFacts(prompt);
+    } catch (e) {
+      console.warn('[AgentLoop] Immediate fact extraction error:', e);
+    }
 
     this.emit({ type: 'STATUS_CHANGE', taskId, status: 'thinking' });
     this.emit({
@@ -257,6 +266,15 @@ export class AgentLoop {
       task.status = task.errorDiagnostics && !isTaskFinished ? 'error' : 'completed';
       task.endTime = Date.now();
 
+      // Record episode & extract background facts into persistent memory
+      try {
+        const executedTools = task.steps.map(s => s.toolName).filter((name): name is string => typeof name === 'string' && name.length > 0);
+        memoryStore.recordEpisode(task.prompt, executedTools, finalSummary);
+        memoryExtractor.extractBackgroundFacts(task.prompt, finalSummary).catch(() => {});
+      } catch (e) {
+        console.warn('[AgentLoop] Memory record error:', e);
+      }
+
       this.emit({
         type: task.status === 'error' ? 'ERROR' : 'TASK_COMPLETE',
         taskId,
@@ -278,6 +296,11 @@ export class AgentLoop {
         suggestedFix: 'Проверьте сетевое подключение к LLM и права доступа PowerShell.',
       };
       task.endTime = Date.now();
+
+      try {
+        const executedTools = task.steps.map(s => s.toolName).filter((name): name is string => typeof name === 'string' && name.length > 0);
+        memoryStore.recordEpisode(task.prompt, executedTools, `Ошибка: ${err.message}`);
+      } catch {}
 
       this.emit({
         type: 'ERROR',
@@ -519,16 +542,20 @@ ${verificationQuestion}
     const stepSummary = task.steps
       .map(s => `${s.toolName}: ${s.observation}`)
       .filter(Boolean)
-      .join('\n') || 'No tools were executed.';
+      .join('\n') || (task.plan.length > 0 ? `Plan: ${task.plan.join(' | ')}` : 'No tools were executed.');
+
+    const memoryContext = memoryStore.formatContext(task.prompt);
 
     const system = `You are JARVIS, a senior technical assistant for a software engineer.
 Reply in Russian, 1–3 concise sentences, spoken aloud. Address the user as "сэр" naturally.
 Tone: calm, precise, professional. No movie-parody catchphrases, no fake enthusiasm.
-CRITICAL HONESTY RULE:
+CRITICAL HONESTY & MEMORY RULES:
+- If the user asks a question about themselves (name, preferences, habits, contacts) or past tasks, answer DIRECTLY using the provided Memory context.
 - Inspect the Execution log carefully.
 - If an action was verified on screen, state that it was successfully completed.
 - If an action failed, could not open an app, or was not confirmed on screen (e.g. "Не обнаружены на экране"), state HONESTLY and PRECISELY what went wrong and what was attempted. Never claim success if an app did not open.
-- Do not mention raw JSON or technical parameters.`;
+- Do not mention raw JSON or technical parameters.
+${memoryContext ? `\n${memoryContext}\n` : ''}`;
 
     try {
       const response = await brain.generate({

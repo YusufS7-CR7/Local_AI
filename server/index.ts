@@ -16,6 +16,7 @@ import { geminiClient } from './router/geminiClient.js';
 import { openRouterClient } from './router/openRouterClient.js';
 import { elevenLabsService } from './tts/elevenLabs.js';
 import { validateString, LIMITS } from './utils/apiGuard.js';
+import { memoryStore } from './memory/memoryStore.js';
 
 dotenv.config();
 
@@ -127,6 +128,33 @@ app.get('/api/tools', globalLimiter, (_req, res) => {
       parameters: t.parameters,
     })),
   });
+});
+
+// Memory API endpoints
+app.get('/api/memory', globalLimiter, (_req, res) => {
+  res.json({
+    facts: memoryStore.getAllFacts(),
+    recentEpisodes: memoryStore.getRecentEpisodes(15),
+  });
+});
+
+app.post('/api/memory', globalLimiter, (req, res) => {
+  const { key, value, category } = req.body || {};
+  if (!key || !value) {
+    return res.status(400).json({ error: 'Key and value are required.' });
+  }
+  const fact = memoryStore.remember(String(key), String(value), category || 'custom');
+  res.json({ success: true, fact });
+});
+
+app.delete('/api/memory/:key', globalLimiter, (req, res) => {
+  const rawKey = req.params.key;
+  const key = Array.isArray(rawKey) ? rawKey[0] : rawKey;
+  if (!key) {
+    return res.status(400).json({ error: 'Key is required.' });
+  }
+  const deleted = memoryStore.forget(key);
+  res.json({ success: true, deleted });
 });
 
 app.post('/api/agent/run', globalLimiter, agentRunLimiter, async (req, res) => {
