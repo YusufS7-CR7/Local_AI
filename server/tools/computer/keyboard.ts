@@ -13,14 +13,37 @@ export const keyboardTypeTool: ITool = {
   async execute(params: { text: string; pressEnter?: boolean }): Promise<ToolResult> {
     try {
       const script = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class WinKbPaste {
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+    public const byte VK_CONTROL = 0x11;
+    public const byte VK_V = 0x56;
+    public const byte VK_RETURN = 0x0D;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+    public static void Paste(bool pressEnter) {
+        keybd_event(VK_CONTROL, 0, 0, 0);
+        System.Threading.Thread.Sleep(40);
+        keybd_event(VK_V, 0, 0, 0);
+        System.Threading.Thread.Sleep(40);
+        keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+        if (pressEnter) {
+            System.Threading.Thread.Sleep(250);
+            keybd_event(VK_RETURN, 0, 0, 0);
+            System.Threading.Thread.Sleep(40);
+            keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, 0);
+        }
+    }
+}
+"@ -ErrorAction SilentlyContinue
+
 Set-Clipboard -Value @'
 ${params.text}
 '@
 Start-Sleep -Milliseconds 120
-$wshell = New-Object -ComObject WScript.Shell
-$wshell.SendKeys('^v')
-Start-Sleep -Milliseconds 180
-${params.pressEnter ? "$wshell.SendKeys('~')" : ''}
+[WinKbPaste]::Paste(${params.pressEnter ? '$true' : '$false'})
 `;
       await runPowerShell(script);
       return { success: true, message: `Успешно напечатан текст: "${params.text}"${params.pressEnter ? ' [нажат Enter]' : ''}` };

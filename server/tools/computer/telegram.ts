@@ -8,8 +8,6 @@ import sharp from 'sharp';
 /**
  * Normalizes Russian inflected contact names to their dictionary/nominative form.
  * E.g., "маме" -> "Мама", "папе" -> "Папа", "жене" -> "Жена", "Ване" -> "Ваня".
- * Telegram Desktop search relies on prefix matching, so typing the nominative form
- * matches the contact book entry reliably.
  */
 function normalizeContactName(name: string): string {
   const n = name.trim();
@@ -48,21 +46,17 @@ function normalizeContactName(name: string): string {
   }
 
   // Declension fixes:
-  // e.g. Саше -> Саша, Мише -> Миша, Сереже -> Сережа
   if (lower.endsWith('е')) {
     if (/[жшчщ]е$/i.test(lower)) {
       return n.slice(0, -1) + (n.endsWith('Е') ? 'А' : 'а');
     }
-    // Ване -> Ваня, Кате -> Катя, Пете -> Петя, Коле -> Коля
     return n.slice(0, -1) + (n.endsWith('Е') ? 'Я' : 'я');
   }
 
-  // e.g. Максиму -> Максим, Артему -> Артем, Антону -> Антон, Ивану -> Иван
   if (lower.endsWith('у') && /[бвгджзклмнпрстфхцчшщ]у$/i.test(lower)) {
     return n.slice(0, -1);
   }
 
-  // e.g. Игорю -> Игорь
   if (lower.endsWith('ю')) {
     return n.slice(0, -1) + (n.endsWith('Ю') ? 'Ь' : 'ь');
   }
@@ -82,7 +76,7 @@ async function visionFindElement(description: string): Promise<{ x: number; y: n
     );
     const [sw, sh] = (resOut.trim() || '1920x1080').split('x').map(n => parseInt(n) || 1080);
 
-    // 2. Capture FULL native resolution screenshot (NO lossy downscaling to 1280)
+    // 2. Capture FULL native resolution screenshot (NO lossy downscaling)
     const screenRes = await screenshotTool.execute({});
     if (!screenRes.success || !screenRes.screenshot) return null;
 
@@ -107,8 +101,11 @@ async function visionFindElement(description: string): Promise<{ x: number; y: n
    - Найди ИМЕННО строку с именем указанного контакта, а НЕ заголовок раздела (например "Чаты и контакты" / "Global search") и НЕ верхний соседний чат!
    - Координата Y должна указывать строго на ВЕРТИКАЛЬНУЮ СЕРЕДИНУ строки этого контакта (посередине между верхней и нижней границей строки, прямо на текст имени).
    - Координата X должна указывать на текст имени контакта или его аватарку слева от имени.
-2. Координаты указываются в пикселях данного изображения (X: 0..${imgW}, Y: 0..${imgH}).
-3. Обязательно укажи ограничивающий прямоугольник (box) найденного элемента для достижения 100% точности клика.
+2. Если ищешь поле ввода сообщения:
+   - Выбери координаты в ПУСТОЙ ТЕКСТОВОЙ ОБЛАСТИ поля ввода (ближе к центру строки).
+   - Ни в коем случае НЕ нажимай на смайлики слева и НЕ на микрофон справа!
+3. Координаты указываются в пикселях данного изображения (X: 0..${imgW}, Y: 0..${imgH}).
+4. Обязательно укажи ограничивающий прямоугольник (box) найденного элемента для достижения 100% точности клика.
 
 Верни СТРОГО валидный JSON без markdown:
 {
@@ -163,61 +160,107 @@ async function visionFindElement(description: string): Promise<{ x: number; y: n
 }
 
 /**
- * Clicks at the given pixel coordinates using DPI-aware Win32 mouse_event.
+ * Shared C# input helper that is 100% layout-independent (hardware scan codes for VK_CONTROL, VK_V, VK_RETURN).
  */
-async function clickAt(x: number, y: number, button: 'left' | 'double' = 'left'): Promise<void> {
-  const script = `
+const CSHARP_INPUT_HELPER = `
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
-public class WinMouse2 {
+public class WinTelegramInput {
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, int e);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+
     public const uint LD = 0x0002, LU = 0x0004;
+    public const byte VK_BACK = 0x08;
+    public const byte VK_RETURN = 0x0D;
+    public const byte VK_CONTROL = 0x11;
+    public const byte VK_A = 0x41;
+    public const byte VK_V = 0x56;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+
     public static void Click(int x, int y) {
         SetProcessDPIAware();
         SetCursorPos(x, y);
-        System.Threading.Thread.Sleep(80);
-        mouse_event(LD, (uint)x, (uint)y, 0, 0);
         System.Threading.Thread.Sleep(60);
+        mouse_event(LD, (uint)x, (uint)y, 0, 0);
+        System.Threading.Thread.Sleep(50);
         mouse_event(LU, (uint)x, (uint)y, 0, 0);
+    }
+
+    public static void Clear() {
+        // Ctrl+A -> Backspace
+        keybd_event(VK_CONTROL, 0, 0, 0);
+        System.Threading.Thread.Sleep(30);
+        keybd_event(VK_A, 0, 0, 0);
+        System.Threading.Thread.Sleep(30);
+        keybd_event(VK_A, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+        System.Threading.Thread.Sleep(60);
+
+        keybd_event(VK_BACK, 0, 0, 0);
+        System.Threading.Thread.Sleep(30);
+        keybd_event(VK_BACK, 0, KEYEVENTF_KEYUP, 0);
+    }
+
+    public static void PasteAndSend(bool pressEnter) {
+        // Hardware Ctrl+V paste (works on any keyboard layout, including RU)
+        keybd_event(VK_CONTROL, 0, 0, 0);
+        System.Threading.Thread.Sleep(40);
+        keybd_event(VK_V, 0, 0, 0);
+        System.Threading.Thread.Sleep(40);
+        keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+
+        if (pressEnter) {
+            System.Threading.Thread.Sleep(350);
+            // Hardware Enter key
+            keybd_event(VK_RETURN, 0, 0, 0);
+            System.Threading.Thread.Sleep(50);
+            keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, 0);
+        }
     }
 }
 "@ -ErrorAction SilentlyContinue
-[WinMouse2]::Click(${Math.round(x)}, ${Math.round(y)})
-${button === 'double' ? `Start-Sleep -Milliseconds 120\n[WinMouse2]::Click(${Math.round(x)}, ${Math.round(y)})` : ''}
-Start-Sleep -Milliseconds 200
+`;
+
+/**
+ * Clicks at the given pixel coordinates using DPI-aware Win32 mouse_event.
+ */
+async function clickAt(x: number, y: number): Promise<void> {
+  const script = `
+${CSHARP_INPUT_HELPER}
+[WinTelegramInput]::Click(${Math.round(x)}, ${Math.round(y)})
+Start-Sleep -Milliseconds 150
 `;
   await runPowerShell(script);
 }
 
 /**
- * Types text into the currently focused element using clipboard paste.
+ * Types text into the currently focused element using clipboard paste with hardware key codes.
+ * Completely immune to Russian/English keyboard layout differences.
  */
 async function typeText(text: string, pressEnter = false): Promise<void> {
   const escaped = text.replace(/'/g, "''");
   const script = `
+${CSHARP_INPUT_HELPER}
 Set-Clipboard -Value '${escaped}'
-Start-Sleep -Milliseconds 150
-$wshell = New-Object -ComObject WScript.Shell
-$wshell.SendKeys('^v')
+Start-Sleep -Milliseconds 120
+[WinTelegramInput]::PasteAndSend(${pressEnter ? '$true' : '$false'})
 Start-Sleep -Milliseconds 250
-${pressEnter ? "$wshell.SendKeys('~')\nStart-Sleep -Milliseconds 300" : ''}
 `;
   await runPowerShell(script);
 }
 
 /**
- * Clears the current text field (Ctrl+A -> Delete).
+ * Clears the current text field (Ctrl+A -> Backspace) using hardware key codes.
  */
 async function clearField(): Promise<void> {
   const script = `
-$wshell = New-Object -ComObject WScript.Shell
-$wshell.SendKeys('^a')
-Start-Sleep -Milliseconds 120
-$wshell.SendKeys('{DELETE}')
-Start-Sleep -Milliseconds 120
+${CSHARP_INPUT_HELPER}
+[WinTelegramInput]::Clear()
+Start-Sleep -Milliseconds 100
 `;
   await runPowerShell(script);
 }
@@ -273,6 +316,12 @@ export const telegramSendMessageTool: ITool = {
     }
     await delay(800); // wait for window to appear and render
 
+    // Get screen bounds
+    const { stdout: resOut } = await runPowerShell(
+      `Add-Type -AssemblyName System.Windows.Forms; $s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; Write-Output ($s.Width.ToString() + 'x' + $s.Height.ToString())`
+    );
+    const [sw, sh] = (resOut.trim() || '1920x1080').split('x').map(n => parseInt(n) || 1080);
+
     // ── 2. Press Escape first to close any open dialogs/menus ────────────────
     await runPowerShell(`$w = New-Object -ComObject WScript.Shell; $w.SendKeys('{ESC}'); Start-Sleep -Milliseconds 300`);
 
@@ -316,13 +365,13 @@ export const telegramSendMessageTool: ITool = {
 
     if (chatPos) {
       await clickAt(chatPos.x, chatPos.y);
-      await delay(600);
+      await delay(700);
       chatClicked = true;
       console.log(`[TG] Clicked chat "${chat}" at exact position (${chatPos.x}, ${chatPos.y})`);
     } else {
       // Fallback: press Enter to select the active search result in Telegram
       console.log(`[TG] Chat "${chat}" exact row not pinpointed visually, trying Enter fallback...`);
-      await runPowerShell(`$w = New-Object -ComObject WScript.Shell; $w.SendKeys('~'); Start-Sleep -Milliseconds 600`);
+      await runPowerShell(`$w = New-Object -ComObject WScript.Shell; $w.SendKeys('~'); Start-Sleep -Milliseconds 700`);
       chatClicked = true;
     }
 
@@ -333,28 +382,28 @@ export const telegramSendMessageTool: ITool = {
       };
     }
 
-    // ── 6. VISION: Find and click the message input field ───────────────────
-    console.log('[TG] Looking for message input field...');
-    await delay(500);
+    // ── 6. Focus the message input field ─────────────────────────────────────
+    console.log('[TG] Focusing message input field...');
+    await delay(400);
 
+    // Look visually for the input field
     const inputPos = await visionFindElement(
-      'Поле ввода сообщения внизу открытого чата Telegram (текст "Написать сообщение..." / "Write a message...")'
+      'Текстовое поле ввода сообщения внизу открытого чата Telegram (кликни строго по центру текстовой строки "Написать сообщение...", ни в коем случае НЕ нажимай на смайлики слева и НЕ на микрофон справа)'
     );
 
-    if (inputPos) {
-      await clickAt(inputPos.x, inputPos.y);
-      await delay(300);
-      console.log(`[TG] Clicked message input at (${inputPos.x}, ${inputPos.y})`);
-    } else {
-      // Fallback: press Escape to focus input
-      await runPowerShell(`$w = New-Object -ComObject WScript.Shell; $w.SendKeys('{ESC}'); Start-Sleep -Milliseconds 300`);
-    }
+    // Guaranteed fallback coordinate: 65% across screen (chat pane center), 45px above bottom
+    const targetInputX = inputPos ? inputPos.x : Math.round(sw * 0.65);
+    const targetInputY = inputPos ? inputPos.y : (sh - 45);
 
-    // ── 7. Type the message and send ─────────────────────────────────────────
+    await clickAt(targetInputX, targetInputY);
+    await delay(300);
+    console.log(`[TG] Clicked message input at (${targetInputX}, ${targetInputY})`);
+
+    // ── 7. Type the message and send via hardware key codes ──────────────────
     await clearField();
     await delay(150);
-    await typeText(message, true); // true = press Enter to send
-    await delay(400);
+    await typeText(message, true); // true = hardware VK_RETURN
+    await delay(800); // Allow Telegram to process and transmit the message
 
     // ── 8. Quick sanity check: is Telegram still open? ───────────────────────
     try {
